@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: 离线自检 · Python ${{ matrix.python }}
+    # 本项目面向 Windows（DeskBox / 计划任务 / 资源管理器），故在 windows 上跑
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Byte-compile
+        run: python -m compileall -q canvas_helper tests
+
+      - name: Run offline self-test
+        # smoke.py 与本机数据解耦：没有真实课程目录 / todo.json 时自动造 fixture，
+        # 因此在干净的 runner 上也应是 96 项全绿。
+        run: python tests/smoke.py

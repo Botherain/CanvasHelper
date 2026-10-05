@@ -175,7 +175,7 @@ def scan() -> list[Target]:
     # 6) 重复的未完成待办
     try:
         todo_path = _todo_path()
-        if todo_path.exists():
+        if todo_path and todo_path.exists():
             doc = deskbox.load_doc(todo_path)
             removed = deskbox.dedupe_completed({"items": list(doc.get("items", []))})
             if removed:
@@ -200,10 +200,12 @@ def scan() -> list[Target]:
     return out
 
 
-def _todo_path() -> Path:
+def _todo_path() -> Path | None:
+    """返回配置里的 todo.json；未配置（新机器自动发现失败）时返回 None。"""
     from .paths import load_config
 
-    return Path(load_config()["deskbox"]["todo_path"])
+    raw = ((load_config().get("deskbox") or {}).get("todo_path")) or ""
+    return Path(raw) if raw else None
 
 
 # ---------------- 执行 ----------------
@@ -326,8 +328,8 @@ def clean_duplicate_todos(progress: Callable[[str], None] = lambda m: None) -> i
     from .paths import load_config
 
     cfg = load_config()["deskbox"]
-    todo_path = Path(cfg["todo_path"])
-    if not todo_path.exists():
+    todo_path = _todo_path()
+    if todo_path is None or not todo_path.exists():
         return 0
     doc = deskbox.load_doc(todo_path)
     before = len(doc.get("items", []))

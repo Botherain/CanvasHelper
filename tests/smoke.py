@@ -33,9 +33,27 @@ def check(name: str, cond: bool, detail: str = "") -> None:
         print(f"  FAIL  {name}  {detail}")
 
 
+# 本机真实课程文件夹（用于在有数据的机器上做更真实的匹配检查）
+COURSE_FIXTURE = (
+    "CS0001 - Vision and Image",
+    "CS0002 - Intelligent Systems",
+    "CS0003 - Machine Learning",
+    "CS0004 - Generative AI",
+    "CS0005 - Explainable AI",
+    "CS0006 - Algorithm Analysis & Game Theory",
+)
+
+
 def main() -> int:
     cfg = load_config()
     root = Path(cfg["classes_root"])
+    fixture_root: Path | None = None
+    if not root.is_dir():
+        # CI / 新机器没有真实课程目录：临时造一份同名结构，保证测试自洽
+        fixture_root = Path(tempfile.mkdtemp(prefix="ch_courses_"))
+        for name in COURSE_FIXTURE:
+            (fixture_root / name).mkdir(parents=True, exist_ok=True)
+        root = fixture_root
     folders = course_dirs(root)
     print(f"\n[1] 识别本地课程文件夹 ({len(folders)})")
     for k, v in folders.items():
@@ -154,7 +172,19 @@ def main() -> int:
     src = Path(cfg["deskbox"]["todo_path"])
     tmpdir = Path(tempfile.mkdtemp(prefix="ch_test_"))
     fake_todo = tmpdir / "todo.json"
-    shutil.copy2(src, fake_todo)
+    if src.is_file():
+        shutil.copy2(src, fake_todo)
+    else:
+        # 机器上没有 DeskBox 数据时造一份 3 条的种子库，断言与真实数据解耦
+        fake_todo.write_text(json.dumps({
+            "version": 3,
+            "items": [
+                {"id": f"seed{i}", "text": f"Seed item {i}", "isCompleted": False,
+                 "dueDate": "2026-01-0%dT00:00:00+08:00" % i,
+                 "notes": "", "sortOrder": i}
+                for i in range(1, 4)
+            ],
+        }, ensure_ascii=False), encoding="utf-8")
     doc = load_doc(fake_todo)
     before = len(doc["items"])
     doc, added = merge(doc, res.drafts, 1440)
@@ -404,7 +434,7 @@ def main() -> int:
     check("周报含截止项", "CS0001" in body and "本周截止" in body, body[:80])
     check("周报文件名规范", rep.name.startswith("本周摘要-"), rep.name)
 
-    for d in (tmpdir, gdir):
+    for d in (tmpdir, gdir, *( [fixture_root] if fixture_root else [] )):
         shutil.rmtree(d, ignore_errors=True)
 
     print(f"\n结果: {PASS} 通过, {FAIL} 失败")
