@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from .canvas_api import CanvasAPI, Course, Item
 from .deskbox import TodoDraft, _parse_due, _strip_html
-from .paths import PROJECT_DIR, get_logger, load_state, now_hk, save_state
+from .paths import ICS_PATH, get_logger, load_state, now_hk, save_state
 
 log = get_logger()
 HK = ZoneInfo("Asia/Hong_Kong")
@@ -218,7 +218,7 @@ def build_ics(drafts: list[TodoDraft], calendar_name: str = "Canvas 截止日程
 
 
 def export_ics(drafts: list[TodoDraft], path: Path | None = None) -> Path:
-    path = path or (PROJECT_DIR / "canvas-deadlines.ics")
+    path = path or ICS_PATH
     path.write_text(build_ics(drafts), encoding="utf-8", newline="")
     return path
 

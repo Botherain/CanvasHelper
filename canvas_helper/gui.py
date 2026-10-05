@@ -337,7 +337,7 @@ class App(tk.Tk):
         ttk.Button(btns, text="保存设置", command=self.do_save_settings).pack(side="left")
         ttk.Button(btns, text="立即生成本周摘要", command=self.do_report).pack(side="left", padx=6)
         ttk.Button(btns, text="一键清理缓存", command=self.do_clean_cache).pack(side="left", padx=6)
-        ttk.Button(btns, text="打开程序目录", command=self.open_project).pack(side="left")
+        ttk.Button(btns, text="打开数据目录", command=self.open_project).pack(side="left")
 
         ttk.Label(
             tab,
@@ -394,9 +394,9 @@ class App(tk.Tk):
         subprocess.Popen(["cmd", "/c", "start", "", "https://canvas.example.edu/"])
 
     def open_project(self) -> None:
-        from .paths import PROJECT_DIR
+        from .paths import DATA_DIR
 
-        subprocess.Popen(["explorer", str(PROJECT_DIR)])
+        subprocess.Popen(["explorer", str(DATA_DIR)])
 
     def _refresh_deskbox_state(self) -> None:
         running = deskbox.is_running()

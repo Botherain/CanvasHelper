@@ -17,12 +17,11 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from .canvas_api import Course, Item
-from .paths import PROJECT_DIR, get_logger, load_state, now_hk, save_state
+from .paths import PENDING_PATH, get_logger, load_state, now_hk, save_state
 
 log = get_logger()
 HK = ZoneInfo("Asia/Hong_Kong")
 
-PENDING_PATH = PROJECT_DIR / "pending_todos.json"
 CANVAS_URL_RE = re.compile(r"https?://canvas\.example\.edu[^\s)\]>]*", re.I)
 HTML_RE = re.compile(r"<[^>]+>")
 

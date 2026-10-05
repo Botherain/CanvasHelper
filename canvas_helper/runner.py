@@ -155,7 +155,8 @@ def run_sync(
         res.todo_total_drafts = len(drafts.drafts)
 
         # 预判这些截止时间在 DeskBox 里的现状（只读），避免重复添加已完成的作业
-        if cfg.get("deskbox", {}).get("enabled", True):
+        # 未配置 todo_path 时（新机器自动发现失败）直接跳过待办相关逻辑
+        if cfg.get("deskbox", {}).get("enabled", True) and cfg["deskbox"].get("todo_path"):
             try:
                 statuses = deskbox.preview_status(
                     Path(cfg["deskbox"]["todo_path"]), drafts.drafts)
@@ -184,7 +185,8 @@ def run_sync(
         res.stats = execute_plan(plans, api, state, progress=progress)
 
         # ---------- 待办 ----------
-        if cfg.get("deskbox", {}).get("enabled", True):
+        # 未配置 todo_path 时（新机器自动发现失败）直接跳过待办相关逻辑
+        if cfg.get("deskbox", {}).get("enabled", True) and cfg["deskbox"].get("todo_path"):
             policy = cfg["deskbox"].get("background_policy", "queue")
             draft_list = drafts.drafts
             if headless and policy == "queue":
@@ -370,6 +372,10 @@ def flush_pending(cfg: dict | None = None, progress: Progress = _nop) -> int:
     if not rows:
         return 0
     cfg = cfg or load_config()
+    if not cfg["deskbox"].get("todo_path"):
+        # DeskBox 尚未配置：保留排队的待办，等配置好再写
+        progress("DeskBox todo.json 未配置，暂不补写（排队待办已保留）")
+        return 0
     drafts = deskbox.drafts_from_pending(rows)
     todo_path = Path(cfg["deskbox"]["todo_path"])
     tmp, added, st = deskbox.prepare(todo_path, drafts, cfg["deskbox"])

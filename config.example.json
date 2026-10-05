@@ -1,0 +1,35 @@
+{
+  "classes_root": "",
+  "course_map": {},
+  "selected_courses": [],
+  "categories": {
+    "lecture": "1.Lecture session",
+    "tutorial": "2.Tutorial session",
+    "assignment": "3.Assignments",
+    "project": "4.Projects",
+    "book": "5.Books",
+    "other": "6.Others"
+  },
+  "deskbox": {
+    "enabled": true,
+    "todo_path": "",
+    "exe_path": "",
+    "fix_attachment_paths": true,
+    "background_policy": "queue",
+    "reminder_offset_minutes": 1440,
+    "remove_duplicates": true
+  },
+  "schedule": {
+    "enabled": false,
+    "sync_time": "08:30",
+    "report_enabled": true,
+    "report_weekday": "MON",
+    "report_time": "09:00"
+  },
+  "extras": {
+    "ics": true,
+    "notices": true,
+    "grades": true,
+    "report": true
+  }
+}

@@ -15,12 +15,11 @@ from pathlib import Path
 from typing import Callable
 
 from . import deskbox
-from .paths import (LOG_PATH, PROFILE_DIR, PROJECT_DIR, STATE_PATH,
+from .paths import (ICS_PATH, LOG_PATH, PROFILE_DIR, SESSION_PATH, STATE_PATH,
                     get_logger, load_state, save_state)
 
 log = get_logger()
 
-ICS_PATH = PROJECT_DIR / "canvas-deadlines.ics"
 BACKUP_LOG_SUFFIXES = (".1", ".2", ".3", ".old")
 
 # 纯缓存目录/文件名（大小写不敏感，任意层级命中即清理）
@@ -106,9 +105,8 @@ def browser_cache_paths(root: Path | None = None) -> list[Path]:
 def login_paths(root: Path | None = None) -> list[Path]:
     root = root or PROFILE_DIR
     out: list[Path] = []
-    session = PROFILE_DIR.parent / "session.json"
-    if session.exists():
-        out.append(session)
+    if SESSION_PATH.exists():
+        out.append(SESSION_PATH)
     if root.is_dir():
         for name in ("Cookies", "Login Data", "Login Data For Account", "Web Data"):
             out.extend(p for p in root.rglob(name) if p.is_file())
@@ -158,23 +156,21 @@ def scan() -> list[Target]:
             1, ICS_PATH.stat().st_size, default=True,
         ))
 
-    # 4) 日志
+    # 4) 日志（恒定列出，没有文件时显示 0 B）
     logs = [LOG_PATH] + [LOG_PATH.with_name(LOG_PATH.name + s) for s in BACKUP_LOG_SUFFIXES]
-    logs = [p for p in logs if p.exists()]
-    if logs:
-        f, b = _measure(logs)
-        out.append(Target("log", "运行日志", "sync.log（清空后仍会继续记录新日志）。", f, b, default=True))
+    f, b = _measure([p for p in logs if p.exists()])
+    out.append(Target("log", "运行日志", "sync.log（清空后仍会继续记录新日志）。", f, b, default=True))
 
-    # 5) 浏览器缓存
+    # 5) 浏览器缓存（恒定列出；首次运行尚无缓存时为 0 B）
     caches = browser_cache_paths()
-    if caches:
-        f, b = _measure(caches)
-        out.append(Target(
-            "browser", "浏览器缓存",
-            f"{len(caches)} 个缓存目录（Default/Cache、ShaderCache 等），"
-            "不含 Cookie，**清理后登录态仍然有效**。",
-            f, b, default=True,
-        ))
+    f, b = _measure(caches)
+    out.append(Target(
+        "browser", "浏览器缓存",
+        (f"{len(caches)} 个缓存目录（Default/Cache、ShaderCache 等），"
+         "不含 Cookie，**清理后登录态仍然有效**。" if caches
+         else "尚无浏览器缓存（登录一次后才会产生），清理不影响登录态。"),
+        f, b, default=True,
+    ))
 
     # 6) 重复的未完成待办
     try:

@@ -1,8 +1,11 @@
 # CanvasHelper · Canvas 课程同步与学习辅助
 
-访问 <https://canvas.example.edu/>，读取课程内容与通知，按你已有的目录规则归档到
-`D:\Courses\<课程>\`，并把 tutorial / assignment / project 的截止时间
+访问你学校的 Canvas（LMS），读取课程内容与通知，按你已有的目录规则归档到
+`<课程根目录>\<课程>\`，并把 tutorial / assignment / project 的截止时间
 自动写入 **DeskBox 待办**。
+
+> 本工具面向**个人学习用途**，请勿用于批量抓取或再分发课程内容。
+> 与 Instructure / Canvas 及你所在院校无任何关联。见文末 [许可与免责](#许可与免责)。
 
 ## 功能
 
@@ -21,17 +24,49 @@
 ## 快速开始
 
 ```powershell
-# 一次性准备（本机已装好 playwright + tzdata，可跳过）
+# 1. 依赖（Playwright 用系统 Edge，不用另下浏览器）
 pip install -r requirements.txt
 
-# 启动图形界面
+# 2. 启动图形界面
 .\启动Canvas助手.bat
 # 或
 python -m canvas_helper
 ```
 
-**首次运行**会打开 Edge 登录窗口，完成 学校 SSO / 2FA 即可；登录态保存在
+**首次运行**会打开 Edge 登录窗口，完成学校 SSO / 2FA 即可；登录态保存在
 `%LOCALAPPDATA%\CanvasHelper\profile`，之后长期免登录，掉线时会自动重新弹窗。
+
+### 首次配置
+
+程序不需要预先写配置——三项路径会自动处理：
+
+| 配置项 | 默认行为 |
+| --- | --- |
+| `classes_root` 课程根目录 | 取 `<用户目录>\CanvasCourses`，在「设置」页**浏览…**改成你的目录 |
+| `deskbox.todo_path` | 自动扫描 `%LOCALAPPDATA%\DeskBox\data\widgets\*\todo.json`，取条目最多的那个 |
+| `deskbox.exe_path` | 按常见安装位置搜索 `DeskBox.exe` |
+
+猜错了在「设置」页手改并保存即可。配置模板见
+[`config.example.json`](config.example.json)，实际配置在
+`%LOCALAPPDATA%\CanvasHelper\config.json`（首次运行自动生成，不入库）。
+
+### 数据目录
+
+所有可写数据都在 `%LOCALAPPDATA%\CanvasHelper\`，与安装位置解耦，
+换盘符、换机器、打包成 exe 都不受影响：
+
+```
+%LOCALAPPDATA%\CanvasHelper\
+├─ config.json               配置（首次运行自动生成）
+├─ state.json                同步状态（已下载文件、已读通知、已完成待办）
+├─ sync.log                  日志
+├─ pending_todos.json        后台排队的待办
+├─ canvas-deadlines.ics      导出的截止日历
+├─ session.json              Canvas 登录 cookie
+└─ profile\                  持久化浏览器 profile
+```
+
+从旧版本（数据放在源码目录）升级时会**自动搬一次**，原文件保留作备份。
 
 ## 使用流程
 
@@ -85,8 +120,9 @@ python -m canvas_helper clean --login      # 连登录态一起清（之后需�
 待办去重键是 Canvas 原链接（写在 notes 里），重复同步不会产生重复条目。
 可选 **自动修复** 历史待办里缺少 `Classes\` 一层的坏附件路径。
 
-数据文件：`%LOCALAPPDATA%\DeskBox\data\widgets\e0597764-…\todo.json`
-（改写前自动备份为 `todo.json.pre-canvas`）。
+数据文件：DeskBox 的 `todo.json`（默认自动发现为
+`%LOCALAPPDATA%\DeskBox\data\widgets\<widget-id>\todo.json`，可在设置页手改；
+改写前自动备份为 `todo.json.pre-canvas`）。
 
 ## 已完成作业的处理
 
@@ -131,7 +167,7 @@ python -m canvas_helper clean --login      # 连登录态一起清（之后需�
 ```
 CanvasHelper\
 ├─ canvas_helper\
-│  ├─ paths.py       路径 / 配置 / 日志 / 状态
+│  ├─ paths.py       路径 / 配置 / 日志 / 状态（数据目录 + 自动发现）
 │  ├─ auth.py        持久化浏览器 profile + 登录判定
 │  ├─ canvas_api.py  /api/v1 分页封装（课程/模块/文件/作业/公告/成绩）
 │  ├─ classify.py    分类与子目录推断
@@ -143,11 +179,20 @@ CanvasHelper\
 │  ├─ runner.py      流程编排
 │  └─ gui.py         tkinter 界面
 ├─ tests\smoke.py    离线自检（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理）
-├─ config.json       配置（首次运行自动生成）
-├─ state.json        同步状态（已下载文件、已读通知）
-├─ sync.log          日志
-└─ canvas-deadlines.ics
+├─ config.example.json  配置模板（可写数据不在这里，见「数据目录」）
+├─ LICENSE
+└─ 启动Canvas助手.bat   用 %~dp0，位置随意
 ```
+
+## 许可与免责
+
+本项目以 [MIT License](LICENSE) 发布。
+
+- **仅限个人学习使用**。请遵守所在院校的可接受使用政策与 Canvas/Instructure 的服务条款，
+  不要用于批量抓取、爬取或向第三方再分发课程内容。
+- 本工具依赖 Canvas 的 `/api/v1` 接口，**接口变动可能导致功能失效**，不提供可用性保证。
+- 对因使用本工具造成的任何数据丢失、账号问题，作者不承担责任。
+- 与 Instructure、Canvas 及任何院校**均无关联**，也未获其背书。
 
 ## 自检
 
