@@ -39,15 +39,44 @@ def check(name: str, cond: bool, detail: str = "") -> None:
         print(f"  FAIL  {name}  {detail}")
 
 
-# 本机真实课程文件夹（用于在有数据的机器上做更真实的匹配检查）
-COURSE_FIXTURE = (
-    "CS0001 - Vision and Image",
-    "CS0002 - Intelligent Systems",
-    "CS0003 - Machine Learning",
-    "CS0004 - Generative AI",
-    "CS0005 - Explainable AI",
-    "CS0006 - Algorithm Analysis & Game Theory",
-)
+# 真实课程目录的结构蓝本。本机有 classes_root 时用真的（更贴近实战），
+# 干净的 CI 机器上按这个造目录——[3] 的断言本质是「跟随本地结构」，
+# 所以必须给出结构，而不是给一个空目录。
+COURSE_FIXTURE = {
+    "CS0001 - Vision and Image": (
+        "1.Lecture session",
+        "2.Tutorial session/Week1",
+        "2.Tutorial session/Week10",
+        "3.Assignments/Assignment_1",
+        "3.Assignments/Assignment_2",
+        "4.Projects",
+        "5.Useful links",
+    ),
+    "CS0002 - Intelligent Systems": (
+        "1.Lecture session",
+        "2.Tutorial session",          # 平铺、无编号子目录 -> 保持平铺
+        "3.Assignments/Assignment1",
+        "4.Projects",
+        "5.Books",
+    ),
+    "CS0003 - Machine Learning": (
+        "1.Lecture session",
+        "2.Tutorial session/Tutorial1",   # 编号样式 Tutorial + 空分隔 -> Tutorial5
+        "3.Assignments/Assignment1",
+        "4.Projects",
+    ),
+    "CS0004 - Generative AI": (
+        "1.Lecture session", "2.Tutorial session", "3.Assignments",
+        "4.Projects", "5.Books", "6.Others",
+    ),
+    "CS0005 - Explainable AI": (
+        "1.Lecture session", "2.Tutorial session", "3.Assignments",
+        "4.Projects", "5.Books", "6.Others",
+    ),
+    "CS0006 - Algorithm Analysis & Game Theory": (
+        "1.Lecture session", "2.Tutorial session", "3.Assignments", "4.Projects",
+    ),
+}
 
 
 def main() -> int:
@@ -55,10 +84,11 @@ def main() -> int:
     root = Path(cfg["classes_root"])
     fixture_root: Path | None = None
     if not root.is_dir():
-        # CI / 新机器没有真实课程目录：临时造一份同名结构，保证测试自洽
+        # CI / 新机器没有真实课程目录：按蓝本造一份，保证测试自洽且与机器无关
         fixture_root = Path(tempfile.mkdtemp(prefix="ch_courses_"))
-        for name in COURSE_FIXTURE:
-            (fixture_root / name).mkdir(parents=True, exist_ok=True)
+        for course, subs in COURSE_FIXTURE.items():
+            for sub in subs:
+                (fixture_root / course / sub).mkdir(parents=True, exist_ok=True)
         root = fixture_root
     folders = course_dirs(root)
     print(f"\n[1] 识别本地课程文件夹 ({len(folders)})")
