@@ -1,0 +1,2 @@
+playwright>=1.63
+tzdata>=2024.1

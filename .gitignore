@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+config.json
+state.json
+pending_todos.json
+sync.log
+canvas-deadlines.ics

@@ -1,0 +1,162 @@
+# CanvasHelper · Canvas 课程同步与学习辅助
+
+访问 <https://canvas.example.edu/>，读取课程内容与通知，按你已有的目录规则归档到
+`D:\Courses\<课程>\`，并把 tutorial / assignment / project 的截止时间
+自动写入 **DeskBox 待办**。
+
+## 功能
+
+| 模块 | 说明 |
+| --- | --- |
+| 课程同步 | 自动识别在读课程 → 勾选 → 拉取模块/文件/页面 → 归档到 `1.Lecture session` / `2.Tutorial session` / `3.Assignments` / `4.Projects` / `5.Books\|Useful links` / `6.Others` |
+| 待办写入 | 解析 Canvas 截止时间 → **先写副本 `todo.json.new`** → 关闭 DeskBox → 原子替换 → 立即重启（停机约 1 秒），并附带 Canvas 原链接 |
+| 通知聚合 | 各课公告 + Activity Stream，可直接跳转原页 |
+| 截止日历 | 一键导出 `.ics`，可导入 Windows / 手机日历（含提前 1 天提醒） |
+| 成绩追踪 | 读取 Canvas 已出分项目与当前总评分，回写每门课的 `GradeNeed.txt` |
+| 每日同步 | Windows 计划任务每天定时后台同步（无窗口，用已保存的登录态） |
+| 每周摘要 | 每周生成 `本周摘要-YYYY-Wnn.md` 到各课程文件夹 |
+| 缓存清理 | **一键清理**下载状态、通知缓存、导出日历、日志、浏览器缓存（默认不动登录态） |
+| 完成去重 | 已完成的作业**不会**再次写入；同名同截止的重复条目在写入时自动清理 |
+
+## 快速开始
+
+```powershell
+# 一次性准备（本机已装好 playwright + tzdata，可跳过）
+pip install -r requirements.txt
+
+# 启动图形界面
+.\启动Canvas助手.bat
+# 或
+python -m canvas_helper
+```
+
+**首次运行**会打开 Edge 登录窗口，完成 学校 SSO / 2FA 即可；登录态保存在
+`%LOCALAPPDATA%\CanvasHelper\profile`，之后长期免登录，掉线时会自动重新弹窗。
+
+## 使用流程
+
+1. 点 **登录 / 刷新课程** → 课程列表出现，自动匹配本地文件夹并预勾选。
+2. 点 **预览归档方案** → 看到每个文件将落到哪个目录（只读，不写盘）。
+3. 点 **开始同步** → 下载 + 归档 + 写待办 + 更新成绩 + 导出日历。
+4. **待办** 页可单独读取截止时间、写入 DeskBox、导出 `.ics`。
+5. **设置** 页可修改目录、DeskBox 路径、后台策略，并注册计划任务。
+
+## 命令行
+
+```text
+python -m canvas_helper              # 图形界面（默认）
+python -m canvas_helper login        # 交互式登录并保存会话
+python -m canvas_helper courses      # 列出已识别课程
+python -m canvas_helper sync --headless    # 后台同步（计划任务用）
+python -m canvas_helper report --headless  # 生成本周摘要
+python -m canvas_helper flush              # 把排队的待办写入 DeskBox
+python -m canvas_helper preview            # 只预览归档计划，不写盘
+python -m canvas_helper clean --dry        # 预览可清理的缓存与体积
+python -m canvas_helper clean              # 清理默认项（状态/日历/日志/浏览器缓存）
+python -m canvas_helper clean --login      # 连登录态一起清（之后需重新登录）
+```
+
+## 归档规则
+
+判定优先级：**Canvas 文件夹路径 > 文件名/模块名 > 内容类型 > 根目录演示稿**。
+
+- 关键词按「词边界 + 归一化」匹配：`_` `-` `/` 转空格、字母与数字之间断开，
+  所以 `Assignment1` 能命中 assignment，而 `syllabus` 不会误判成 `lab`、`past_paper` 不会误判成 `paper`。
+- 文件夹路径是最强信号（`course files/Lecture/Week3` → 讲义，`course files/Tutorial/Week2` → 习题课）；
+  例外：文件夹只是泛泛的 `Week N`，而文件名明确写了作业/项目时，以文件名为准。
+- 目标目录**镜像 Canvas 文件夹层级**，并复用本地既有目录名：
+  `course files/Assignment1/CV_guideline/data/gallery` → `3.Assignments/Assignment_1/CV_guideline/data/gallery`。
+  讲义分类始终平铺；`Tutorial` / `Tutorials` 这类本身就是分类词的首段不再多建一层。
+- 分类目录以磁盘上已存在的 `N.` 目录为准，例如 `5.Useful links` 与 `5.Books` 二选一。
+- 本地已有内容不重复下载：按**归一化文件名 + 大小**判断，
+  Canvas 的 `1. Review of Algorithms.pptx` 能对上本地 `1.Review of Algorithms.pptx`、
+  `0.Introduction.pptx` 能对上 `Introduction.pptx`；纯数字名（`0.jpg` / `1.npy`）不会被误判。
+- 只增不删：同名同大小跳过，同名不同大小自动加 `(1)` 后缀。
+
+## DeskBox 待办写入策略
+
+| 场景 | 行为 |
+| --- | --- |
+| GUI 手动同步 | 有新增待办且 DeskBox 在运行 → 关闭 → 替换 → 重启（约 1 秒）；未运行则直接写文件 |
+| 后台计划任务（默认 `queue`） | 不打扰 DeskBox，写入 `pending_todos.json`，下次打开 GUI 自动补写 |
+| 后台 `restart` | 后台也执行关闭/替换/重启 |
+| 后台 `skip` | 后台同步不写待办 |
+
+待办去重键是 Canvas 原链接（写在 notes 里），重复同步不会产生重复条目。
+可选 **自动修复** 历史待办里缺少 `Classes\` 一层的坏附件路径。
+
+数据文件：`%LOCALAPPDATA%\DeskBox\data\widgets\e0597764-…\todo.json`
+（改写前自动备份为 `todo.json.pre-canvas`）。
+
+## 已完成作业的处理
+
+**问题**：某项作业已经在 DeskBox 里勾了完成，下一次同步/一键写入时又把它加进来了怎么办？
+
+按下面四条判定，命中即停止：
+
+1. **清单里已有同 key 的条目**（Canvas 原链接，或 `文本+截止时间`）→ 不重复添加；
+   如果那条已完成，把草稿标成 `已完成`，并在 `state.json → todo_done` 里记一笔。
+2. **记过完成、后来又被删掉**（截止时间没变）→ 仍然不添加。
+   覆盖「完成了 → 从清单里删掉 → 同步时又冒出来」这种最烦的情况。
+3. **记过完成、但 Canvas 的截止时间变了** → 说明有了新的截止，**重新添加**并标记 `截止已更新`，
+   同时刷新记录。否则作业延期了你就再也收不到提醒。
+4. **key 对不上**（没链接、文本被改过）→ 用归一化文本兜底匹配，规则同上。
+
+另外，写入时会顺手**清理重复项**：同一 `文本 + 截止时间` 的条目里只要有一条已完成，
+就删掉其中未完成的那些（`deskbox.remove_duplicates`，默认开启）。
+截止时间不同的同名任务（比如你自己的每周重复任务）完全不会被碰。
+
+同步/预览的待办列表会直接标出 `已完成` / `已存在` / `截止已更新`，
+写入完成后弹窗也会说明「新增几条、跳过几条已完成」。
+
+## 一键清理缓存
+
+**设置** 页的「一键清理缓存」按钮（或命令行 `clean`）。
+
+| 项目 | 默认 | 说明 |
+| --- | --- | --- |
+| 下载状态 / 通知缓存 | ✅ | 清 `state.json` 的下载记录与已读标记；下次同步重新核对，有本地内容识别兜底不会重复下载 |
+| 导出的 `.ics` | ✅ | 随时可重新导出 |
+| 运行日志 | ✅ | 清空 `sync.log`（FileHandler 保持打开，继续记录新日志） |
+| 浏览器缓存 | ✅ | `Default/Cache`、`ShaderCache` 等 14 个缓存目录，**不含 Cookie，登录态仍然有效** |
+| 后台排队待办 | ❌ | 会丢掉还没写入 DeskBox 的截止提醒，需要手动勾选 |
+| DeskBox 重复待办 | ❌ | 删除重复条目并重启 DeskBox，需要手动勾选 |
+| 登录态 | ❌ | `session.json` + 浏览器 Cookie，勾了就得重新登录 |
+
+浏览器缓存按**目录名**匹配，`Cookies` / `Login Data` / `Local State` / `Local Storage`
+等永远不在清理范围内（自检里有对应断言）。
+
+## 目录结构
+
+```
+CanvasHelper\
+├─ canvas_helper\
+│  ├─ paths.py       路径 / 配置 / 日志 / 状态
+│  ├─ auth.py        持久化浏览器 profile + 登录判定
+│  ├─ canvas_api.py  /api/v1 分页封装（课程/模块/文件/作业/公告/成绩）
+│  ├─ classify.py    分类与子目录推断
+│  ├─ filesync.py    下载计划（dry-run）与执行
+│  ├─ deskbox.py     待办合并 / 副本预写 / 关-换-启
+│  ├─ extras.py      通知、成绩、.ics、每周摘要
+│  ├─ cleaner.py     一键清理缓存（扫描 / 执行）
+│  ├─ scheduler.py   Windows 计划任务
+│  ├─ runner.py      流程编排
+│  └─ gui.py         tkinter 界面
+├─ tests\smoke.py    离线自检（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理）
+├─ config.json       配置（首次运行自动生成）
+├─ state.json        同步状态（已下载文件、已读通知）
+├─ sync.log          日志
+└─ canvas-deadlines.ics
+```
+
+## 自检
+
+```powershell
+python tests\smoke.py
+```
+
+## 注意
+
+- 清空 `%LOCALAPPDATA%\CanvasHelper\` 会导致登录态丢失，需要重新登录。
+- 后台同步需要系统里有可用的登录态（先在 GUI 登录过一次）。
+- 计划任务在当前用户下运行，注销后不执行。
