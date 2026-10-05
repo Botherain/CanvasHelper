@@ -8,6 +8,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Windows 控制台可能是 cp1252/GBK，中文 print 会直接 UnicodeEncodeError。
+# 必须在 import canvas_helper 之前切到 UTF-8，保证在任何控制台（含 CI）都能跑。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 

@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Windows runner 默认 cp1252，中文输出会炸；脚本内也已 reconfigure，双保险
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -25,10 +30,10 @@ jobs:
         python: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python ${{ matrix.python }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
           cache: pip
