@@ -1,5 +1,7 @@
 # CanvasHelper · Canvas 课程同步与学习辅助
 
+[![CI](https://github.com/Botherain/CanvasHelper/actions/workflows/ci.yml/badge.svg)](https://github.com/Botherain/CanvasHelper/actions/workflows/ci.yml)
+
 访问你学校的 Canvas（LMS），读取课程内容与通知，按你已有的目录规则归档到
 `<课程根目录>\<课程>\`，并把 tutorial / assignment / project 的截止时间
 自动写入 **DeskBox 待办**。
@@ -199,6 +201,13 @@ CanvasHelper\
 ```powershell
 python tests\smoke.py
 ```
+
+96 项全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器
+（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 96/96。
+
+每次推送到 `main` 及每个 PR 都会由
+[GitHub Actions](https://github.com/Botherain/CanvasHelper/actions/workflows/ci.yml)
+在 Windows × Python 3.11/3.12/3.13/3.14 上各跑一遍。
 
 ## 注意
 
