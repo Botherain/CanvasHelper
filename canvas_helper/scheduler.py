@@ -20,7 +20,10 @@ def _python() -> str:
 
 
 def _cmd(sub: str) -> str:
-    return f'"{_python()}" -m canvas_helper {sub}'
+    # schtasks 没有「起始位置」参数，默认从 System32 起跑——那时既 import 不到源码目录
+    # 的包（未 pip install 时必然 No module named canvas_helper），日志与相对路径也全错位。
+    # 显式 cd 过去：源码运行与 pip 安装两种形态都能工作。
+    return f'cmd /c cd /d "{PROJECT_DIR}" && "{_python()}" -m canvas_helper {sub}'
 
 
 def _run(args: list[str]) -> tuple[bool, str]:

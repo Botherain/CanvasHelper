@@ -571,6 +571,25 @@ def main() -> int:
         else:
             os.environ["SESSIONNAME"] = env_bak
 
+    print("\n[9] 打包元数据 pyproject.toml")
+    from canvas_helper import __version__ as _ver  # noqa: E402
+
+    pt_path = ROOT / "pyproject.toml"
+    check("pyproject.toml 存在", pt_path.is_file(), str(pt_path))
+    pt = pt_path.read_text(encoding="utf-8") if pt_path.is_file() else ""
+    ver_line = next((ln.strip() for ln in pt.splitlines()
+                     if ln.strip().startswith("version =")), "")
+    got_ver = ver_line.split('"')[1] if '"' in ver_line else ""
+    check("版本号与 __version__ 一致", got_ver == _ver, f"{got_ver!r} vs {_ver!r}")
+    check("声明 requires-python >=3.11", 'requires-python = ">=3.11"' in pt)
+    check("依赖与原 requirements 同源",
+          '"playwright>=1.63"' in pt and '"tzdata>=2024.1"' in pt)
+    check("控制台入口指向 __main__", "canvas_helper.__main__:main" in pt)
+    check("GUI 入口点存在", "canvas_helper.gui:main" in pt)
+    check("只打包 canvas_helper", 'packages = ["canvas_helper"]' in pt)
+    check("声明 MIT 且 LICENSE 存在",
+          'license = "MIT"' in pt and (ROOT / "LICENSE").is_file())
+
     for d in (tmpdir, gdir, *( [fixture_root] if fixture_root else [] )):
         shutil.rmtree(d, ignore_errors=True)
 

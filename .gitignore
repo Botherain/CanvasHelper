@@ -5,3 +5,13 @@ state.json
 pending_todos.json
 sync.log
 canvas-deadlines.ics
+
+# 虚拟环境
+.venv/
+venv/
+
+# 打包产物（pip install . 会在源码目录留下这些）
+build/
+dist/
+*.egg-info/
+.eggs/

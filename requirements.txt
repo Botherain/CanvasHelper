@@ -1,2 +1,3 @@
-playwright>=1.63
-tzdata>=2024.1
+# 依赖的唯一来源是 pyproject.toml，本文件只是 `pip install -r requirements.txt`
+# 的兼容入口（等价于可编辑安装）。新项目请直接：pip install -e .
+-e .

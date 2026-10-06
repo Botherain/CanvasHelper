@@ -26,13 +26,22 @@
 ## 快速开始
 
 ```powershell
-# 1. 依赖（Playwright 用系统 Edge，不用另下浏览器）
-pip install -r requirements.txt
+# 1. 安装（可编辑安装；Playwright 用系统 Edge，不用另下浏览器）
+pip install -e .
 
 # 2. 启动图形界面
+canvas-helper            # 安装后的命令行入口
+# 或（在源码目录里）
 .\启动Canvas助手.bat
 # 或
 python -m canvas_helper
+```
+
+装好之后还有两个小命令：
+
+```powershell
+canvas-helper --version      # 版本号
+canvas-helper sync --headless   # 后台同步（计划任务用的就是它）
 ```
 
 **首次运行**会打开 Edge 登录窗口，完成学校 SSO / 2FA 即可；登录态保存在

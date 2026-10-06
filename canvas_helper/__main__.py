@@ -12,6 +12,12 @@ def main(argv: list[str] | None = None) -> int:
     ensure_dirs()
     log = get_logger()
 
+    if argv and argv[0] in ("-V", "--version"):
+        from . import APP_NAME, __version__
+
+        print(f"{APP_NAME} {__version__}")
+        return 0
+
     if not argv or argv[0] in ("gui", "-g", "--gui"):
         from . import gui
 
@@ -113,7 +119,8 @@ def main(argv: list[str] | None = None) -> int:
             log.info("%d 个文件被占用，已跳过", rep["skipped"])
         return 0
 
-    print("用法: python -m canvas_helper [gui|sync|report|flush|clean|login|courses] [--headless]")
+    print("用法: python -m canvas_helper [gui|sync|report|flush|clean|login|courses] "
+          "[--headless] [--version]")
     print("  gui      启动图形界面（默认）")
     print("  sync     立即同步课程文件与待办")
     print("  report   生成本周学习摘要")

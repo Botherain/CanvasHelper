@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "canvas-helper"
+# 与 canvas_helper/__init__.py 的 __version__ 保持一致（自检 [9] 会断言）
+version = "1.0.0"
+description = "Canvas 课程内容同步与学习辅助：按既有目录规则归档课程文件，把截止时间写入 DeskBox 待办"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Botherain" }]
+keywords = ["canvas", "lms", "sync", "deskbox", "tkinter", "education"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Education",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "playwright>=1.63",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+canvas-helper = "canvas_helper.__main__:main"
+canvas-helper-gui = "canvas_helper.gui:main"
+
+[project.urls]
+Homepage = "https://github.com/Botherain/CanvasHelper"
+Repository = "https://github.com/Botherain/CanvasHelper"
+Issues = "https://github.com/Botherain/CanvasHelper/issues"
+
+[tool.setuptools]
+packages = ["canvas_helper"]
