@@ -19,6 +19,10 @@
     "reminder_offset_minutes": 1440,
     "remove_duplicates": true
   },
+  "auth": {
+    "popup_on_expiry": true,
+    "popup_timeout_s": 180
+  },
   "schedule": {
     "enabled": false,
     "sync_time": "08:30",

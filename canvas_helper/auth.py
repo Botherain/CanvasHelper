@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .paths import PROFILE_DIR, get_logger
+from .paths import PROFILE_DIR, clear_auth_needed, get_logger
 
 CANVAS_HOME = "https://canvas.example.edu/"
 LOGIN_PROBE = "/api/v1/users/self/profile"
@@ -182,6 +182,7 @@ class CanvasSession:
         if ok:
             self.profile = body
             self.save_session()
+            clear_auth_needed()  # 顺手撤掉后台同步留下的「待重新登录」标记
         return ok
 
     # ---------- 登录 ----------

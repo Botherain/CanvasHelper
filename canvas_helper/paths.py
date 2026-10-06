@@ -105,6 +105,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "grades": True,
         "report": True,
     },
+    # 登录态过期时的处理
+    "auth": {
+        # 后台（计划任务）同步发现登录过期时，弹出可见登录窗口尝试自愈。
+        # 关掉则只记成「待重新登录」，由 GUI 顶部提示，不打扰无人值守的机器。
+        "popup_on_expiry": True,
+        # 弹窗等待秒数，超时自动关闭并记为待重新登录
+        "popup_timeout_s": 180,
+    },
 }
 
 _logger: logging.Logger | None = None
@@ -223,6 +231,26 @@ def save_state(state: dict[str, Any]) -> None:
     STATE_PATH.write_text(
         json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+
+def mark_auth_needed(source: str = "") -> None:
+    """记录「Canvas 登录已过期」，供 GUI 启动时醒目提示。
+
+    这是「不再静默失败」的关键：后台同步失败时把信号写进状态，
+    而不是只留一条没人会看的 sync.log。
+    """
+    state = load_state()
+    state["auth_needed"] = {"at": now_hk().isoformat(timespec="seconds"), "source": source}
+    save_state(state)
+
+
+def clear_auth_needed() -> bool:
+    """登录成功后清掉过期标记；本来就没有时直接返回，不写盘。"""
+    state = load_state()
+    if not state.pop("auth_needed", None):
+        return False
+    save_state(state)
+    return True
 
 
 def now_hk():

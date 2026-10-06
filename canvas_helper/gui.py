@@ -44,7 +44,15 @@ class App(tk.Tk):
     # ---------- 基础设施 ----------
 
     def _startup(self) -> None:
-        self._set_status(f"上次同步：{load_state().get('last_sync') or '（从未）'}")
+        state = load_state()
+        self._set_status(f"上次同步：{state.get('last_sync') or '（从未）'}")
+        auth = state.get("auth_needed") or {}
+        if auth:
+            # 后台同步时登录过期了，必须让人一眼看到，而不是埋在 sync.log 里
+            when = str(auth.get("at") or "")[:16].replace("T", " ")
+            self.login_var.set(f"登录状态：⚠ 已过期（{when}），点击重新登录")
+            self.log("上次后台同步时 Canvas 登录已过期，"
+                     "点上方「登录状态」或「登录 / 刷新课程」重新登录")
         pending = deskbox.pending_drafts()
         if pending:
             self.log(f"检测到 {len(pending)} 条后台排队待办，准备写入 DeskBox…")
@@ -143,7 +151,10 @@ class App(tk.Tk):
         head.pack(fill="x")
         ttk.Label(head, text="Canvas 同步助手", style="Header.TLabel").pack(side="left")
         self.login_var = tk.StringVar(value="登录状态：未知")
-        ttk.Label(head, textvariable=self.login_var).pack(side="left", padx=(16, 0))
+        lbl_login = ttk.Label(head, textvariable=self.login_var, cursor="hand2")
+        lbl_login.pack(side="left", padx=(16, 0))
+        # 过期时标签会变成「⚠ 已过期…点击重新登录」，直接点它即可
+        lbl_login.bind("<Button-1>", lambda _e: self.do_load_courses())
         ttk.Button(head, text="登录 / 刷新课程", command=self.do_load_courses).pack(side="right")
         ttk.Button(head, text="打开 Canvas", command=self.open_canvas).pack(side="right", padx=6)
 

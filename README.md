@@ -164,13 +164,40 @@ python -m canvas_helper clean --login      # 连登录态一起清（之后需�
 浏览器缓存按**目录名**匹配，`Cookies` / `Login Data` / `Local State` / `Local Storage`
 等永远不在清理范围内（自检里有对应断言）。
 
+## 登录失效时会怎样
+
+学校 SSO / 2FA 的登录态**大约 7 小时后过期**，而计划任务一天才跑一次，所以后台同步
+大概率会撞上过期。这条路径不会被悄悄吞掉：
+
+1. **先试着自愈** —— 后台发现过期时弹出一个可见的 Edge 登录窗口，等你完成 SSO
+   （默认 `popup_on_expiry: true`，等 `popup_timeout_s: 180` 秒，超时自动关闭）。
+   你若就在电脑前，顺手登录即可，本轮同步照常完成。
+2. **没救回来就留下记号** —— 把 `auth_needed` 写进 `state.json`，`sync.log` 记一条
+   `ERROR`，且 `python -m canvas_helper sync --headless` **退出码为 2**
+   （区别于表示其他错误的 1）。
+3. **下次打开 GUI 一眼看到** —— 顶部「登录状态」变成
+   `⚠ 已过期（2026-10-05 08:30），点击重新登录`，点它或点「登录 / 刷新课程」；
+   登录成功后标记自动清除。
+
+同步途中 cookie 失效同样会中止整轮（不会带着过期会话继续下载 / 写待办）并置同一标记。
+
+相关配置（`config.json` 的 `auth` 段，模板见 [`config.example.json`](config.example.json)）：
+
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `popup_on_expiry` | `true` | 后台过期时是否弹窗自愈；设为 `false` 则只记标记，绝不打扰无人值守的机器 |
+| `popup_timeout_s` | `180` | 弹窗等待秒数，下限 10 秒 |
+
+没有交互会话（服务 / 会话 0）时不弹窗，避免白白干等超时。每周摘要过期时**只记标记不弹窗**
+——每日同步在前已经弹过一次，不再连弹两次。
+
 ## 目录结构
 
 ```
 CanvasHelper\
 ├─ canvas_helper\
-│  ├─ paths.py       路径 / 配置 / 日志 / 状态（数据目录 + 自动发现）
-│  ├─ auth.py        持久化浏览器 profile + 登录判定
+│  ├─ paths.py       路径 / 配置 / 日志 / 状态（数据目录 + 自动发现 + 过期标记）
+│  ├─ auth.py        持久化浏览器 profile + 登录判定 + 过期标记清除
 │  ├─ canvas_api.py  /api/v1 分页封装（课程/模块/文件/作业/公告/成绩）
 │  ├─ classify.py    分类与子目录推断
 │  ├─ filesync.py    下载计划（dry-run）与执行
@@ -178,9 +205,9 @@ CanvasHelper\
 │  ├─ extras.py      通知、成绩、.ics、每周摘要
 │  ├─ cleaner.py     一键清理缓存（扫描 / 执行）
 │  ├─ scheduler.py   Windows 计划任务
-│  ├─ runner.py      流程编排
+│  ├─ runner.py      流程编排（含登录过期的弹窗自愈）
 │  └─ gui.py         tkinter 界面
-├─ tests\smoke.py    离线自检（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理）
+├─ tests\smoke.py    离线自检（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理 / 登录过期）
 ├─ config.example.json  配置模板（可写数据不在这里，见「数据目录」）
 ├─ LICENSE
 └─ 启动Canvas助手.bat   用 %~dp0，位置随意
@@ -202,8 +229,8 @@ CanvasHelper\
 python tests\smoke.py
 ```
 
-96 项全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器
-（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 96/96。
+116 项全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器
+（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 116/116。
 
 每次推送到 `main` 及每个 PR 都会由
 [GitHub Actions](https://github.com/Botherain/CanvasHelper/actions/workflows/ci.yml)
@@ -212,5 +239,6 @@ python tests\smoke.py
 ## 注意
 
 - 清空 `%LOCALAPPDATA%\CanvasHelper\` 会导致登录态丢失，需要重新登录。
-- 后台同步需要系统里有可用的登录态（先在 GUI 登录过一次）。
-- 计划任务在当前用户下运行，注销后不执行。
+- 后台同步需要系统里有可用的登录态（先在 GUI 登录过一次）；过期时按
+  [登录失效时会怎样](#登录失效时会怎样) 处理，**不会静默失败**。
+- 计划任务在当前用户下运行，注销后不执行；弹窗自愈也依赖交互式会话。

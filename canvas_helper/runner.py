@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 from typing import Callable
 
 from . import deskbox, extras, scheduler
-from .auth import CanvasSession
+from .auth import AuthRequired, CanvasSession
 from .canvas_api import CanvasAPI, Course, Item
 from .classify import course_dirs, match_folder
 from .filesync import CoursePlan, build_plan, describe, execute_plan
 from .paths import (DEFAULT_CATEGORIES, get_logger, load_config, load_state,
-                    now_hk, save_config, save_state)
+                    mark_auth_needed, now_hk, save_config, save_state)
 
 log = get_logger()
 Progress = Callable[[str], None]
@@ -38,6 +39,8 @@ class SyncResult:
     grade_files: list[str] = field(default_factory=list)
     ics_path: str = ""
     errors: list[str] = field(default_factory=list)
+    # 登录态失效导致本轮未执行（区别于普通的 errors）
+    auth_required: bool = False
     text: str = ""
 
 
@@ -53,6 +56,26 @@ def _todo_summary(added: int, st: dict) -> str:
     if st.get("deduped"):
         parts.append(f"清理重复 {st['deduped']} 条")
     return "，".join(parts)
+
+
+def _relogin_headless(cfg: dict, session: CanvasSession, progress: Progress) -> bool:
+    """后台（计划任务）模式发现登录过期时的自愈：弹出可见窗口等用户完成 SSO。
+
+    后台没有 GUI，唯一能自愈的路径就是弹一次浏览器窗口；但必须克制：
+    没有交互会话时弹了也没人看得见，配置关掉时则完全不打扰。
+    成功返回 True，调用方可继续本轮同步；失败由调用方记为「待重新登录」。
+    """
+    auth_cfg = cfg.get("auth") or {}
+    if not auth_cfg.get("popup_on_expiry", True):
+        progress("登录已过期（已配置不弹窗），跳过本次后台任务")
+        return False
+    if not os.environ.get("SESSIONNAME"):
+        # 服务 / 会话 0 里没有桌面，弹窗只会白白等满超时
+        progress("登录已过期且当前没有交互会话，无法弹窗")
+        return False
+    timeout = max(10, int(auth_cfg.get("popup_timeout_s", 180)))
+    progress(f"登录已过期，弹出登录窗口等待（{timeout} 秒）…")
+    return session.ensure_login(on_status=progress, timeout_s=timeout)
 
 
 def resolve_courses(cfg: dict, api: CanvasAPI) -> tuple[list[Course], dict[int, Path]]:
@@ -114,8 +137,11 @@ def run_sync(
                 return res
         else:
             session.start(headless=True)
-            if not session.is_logged_in():
-                res.errors.append("登录已过期，需要先在 GUI 中登录一次")
+            if not session.is_logged_in() and not _relogin_headless(cfg, session, progress):
+                # 关键：把失败写进状态，GUI 启动时会醒目提示，而不是只进 sync.log
+                mark_auth_needed("sync --headless")
+                res.auth_required = True
+                res.errors.append("登录已过期，本次后台同步未执行")
                 return res
 
         api = CanvasAPI(session)
@@ -132,11 +158,22 @@ def run_sync(
             progress(f"读取课程结构：{c.short}")
             try:
                 items, _ = api.collect_items(c.id)
+            except AuthRequired as exc:
+                # cookie 中途失效：整轮作废，标记待重新登录后立即收工，
+                # 绝不带着过期会话继续下载 / 写待办
+                mark_auth_needed("sync --headless" if headless else "sync")
+                res.auth_required = True
+                res.errors.append(f"{c.short}: 登录中途失效（{exc}）")
+                log.error("登录中途失效，中止本次同步: %s", exc)
+                break
             except Exception as exc:
                 res.errors.append(f"{c.short}: {exc}")
                 log.exception("读取 %s 失败", c.short)
                 continue
             items_by_course[c.id] = items
+
+        if res.auth_required:
+            return res
 
         plans: list[CoursePlan] = []
         for c in courses:
@@ -316,6 +353,9 @@ def run_report(cfg: dict | None = None, headless: bool = False, progress: Progre
         if headless:
             session.start(headless=True)
             if not session.is_logged_in():
+                # 摘要不弹窗（每日同步在前已经弹过，避免连弹两次），只留标记
+                mark_auth_needed("report --headless")
+                log.error("登录已过期，跳过本周摘要（已标记待重新登录）")
                 progress("登录过期，跳过摘要")
                 return written
         elif not session.ensure_login(on_status=progress):

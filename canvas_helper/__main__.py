@@ -27,6 +27,11 @@ def main(argv: list[str] | None = None) -> int:
         res = run_sync(headless=True if headless else False,
                        progress=lambda m: log.info(m))
         log.info("同步统计: %s", res.stats)
+        if getattr(res, "auth_required", False):
+            # 退出码 2 专门表示「登录过期」，与一般的 1（其他错误）区分开
+            log.error("登录已过期：本次后台同步未执行。"
+                      "打开 GUI 后点「登录 / 刷新课程」重新登录即可恢复。")
+            return 2
         if res.errors:
             log.warning("问题: %s", res.errors)
         return 1 if res.errors and not res.stats else 0

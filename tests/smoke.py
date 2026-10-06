@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -23,7 +24,7 @@ from canvas_helper.classify import (  # noqa: E402
     resolve_dir, sanitize)
 from canvas_helper.deskbox import (TodoDraft, build_drafts, dedupe_completed,  # noqa: E402
                                    load_doc, merge, preview_status)
-from canvas_helper.paths import load_config  # noqa: E402
+from canvas_helper.paths import DEFAULT_CONFIG, load_config  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -469,6 +470,106 @@ def main() -> int:
     body = rep.read_text(encoding="utf-8")
     check("周报含截止项", "CS0001" in body and "本周截止" in body, body[:80])
     check("周报文件名规范", rep.name.startswith("本周摘要-"), rep.name)
+
+    print("\n[8] 登录过期不再静默失败")
+    from canvas_helper import paths as _paths  # noqa: E402
+    from canvas_helper.runner import _relogin_headless  # noqa: E402
+
+    check("默认弹窗自愈", DEFAULT_CONFIG["auth"]["popup_on_expiry"] is True)
+    check("默认弹窗 180 秒", DEFAULT_CONFIG["auth"]["popup_timeout_s"] == 180)
+
+    # 标记的写入 / 清除 + headless 同步的契约：先备份真实 state.json，跑完原样还原
+    state_bak = _paths.STATE_PATH.read_bytes() if _paths.STATE_PATH.exists() else None
+    try:
+        _paths.clear_auth_needed()
+        check("无标记时清除返回 False", _paths.clear_auth_needed() is False)
+        _paths.mark_auth_needed("sync --headless")
+        got = _paths.load_state().get("auth_needed") or {}
+        check("过期标记写进状态", got.get("source") == "sync --headless", str(got))
+        check("标记带时间戳", bool(got.get("at")), str(got))
+        check("清除标记生效", _paths.clear_auth_needed() is True)
+        check("清除后状态里没有残留", not _paths.load_state().get("auth_needed"))
+
+        # 真正的契约：后台同步发现过期 -> 必须置 auth_required 并留下标记，
+        # 而不是只往 sync.log 里丢一行没人看的 warning
+        from canvas_helper.runner import run_sync  # noqa: E402
+
+        class _DeadSession:
+            """登录态已失效的会话桩。"""
+
+            def start(self, headless: bool = True) -> None:
+                pass
+
+            def is_logged_in(self) -> bool:
+                return False
+
+        res8 = run_sync(
+            cfg={"auth": {"popup_on_expiry": False, "popup_timeout_s": 180},
+                 "selected_courses": []},
+            session=_DeadSession(), headless=True, progress=lambda m: None,
+        )
+        check("后台同步置 auth_required", res8.auth_required is True, str(res8.errors))
+        check("后台同步留下过期标记",
+              (_paths.load_state().get("auth_needed") or {}).get("source")
+              == "sync --headless",
+              str(_paths.load_state().get("auth_needed")))
+        check("错误信息人话可读",
+              any("登录已过期" in e for e in res8.errors), str(res8.errors))
+        check("退出码可区分（auth_required 字段存在）",
+              hasattr(res8, "auth_required"))
+    finally:
+        if state_bak is None:
+            _paths.STATE_PATH.unlink(missing_ok=True)
+        else:
+            _paths.STATE_PATH.write_bytes(state_bak)
+
+    # 后台自愈：是否弹窗、弹多久、没有交互会话时会不会白等
+    class _Stub:
+        def __init__(self, ok: bool) -> None:
+            self.ok = ok
+            self.timeouts: list[int] = []
+
+        def ensure_login(self, on_status=None, timeout_s: int = 1200) -> bool:
+            self.timeouts.append(timeout_s)
+            return self.ok
+
+    _log: list[str] = []
+    say = _log.append
+    env_bak = os.environ.get("SESSIONNAME")
+    try:
+        os.environ["SESSIONNAME"] = "Console"
+        off = {"auth": {"popup_on_expiry": False, "popup_timeout_s": 99}}
+        s1 = _Stub(True)
+        check("配置关掉时不自愈", _relogin_headless(off, s1, say) is False)
+        check("关闭时根本不碰会话", not s1.timeouts, str(s1.timeouts))
+
+        on = {"auth": {"popup_on_expiry": True, "popup_timeout_s": 123}}
+        s2 = _Stub(True)
+        check("配置开启时尝试自愈", _relogin_headless(on, s2, say) is True)
+        check("按配置的超时弹窗", s2.timeouts == [123], str(s2.timeouts))
+
+        s3 = _Stub(False)
+        check("用户没登录则如实返回失败",
+              _relogin_headless(on, s3, say) is False)
+        check("失败路径同样采用配置超时", s3.timeouts == [123], str(s3.timeouts))
+
+        # 超时下限：配成 1 秒也得抬到 10 秒，免得弹窗一闪而过没人来得及点
+        s3b = _Stub(False)
+        tiny = {"auth": {"popup_on_expiry": True, "popup_timeout_s": 1}}
+        _relogin_headless(tiny, s3b, say)
+        check("超时下限抬到 10 秒", s3b.timeouts == [10], str(s3b.timeouts))
+
+        os.environ.pop("SESSIONNAME", None)
+        s4 = _Stub(True)
+        check("无交互会话时不白等",
+              _relogin_headless(on, s4, say) is False and not s4.timeouts,
+              str(s4.timeouts))
+        check("每种情况都有进度提示", len(_log) == 5, str(_log))
+    finally:
+        if env_bak is None:
+            os.environ.pop("SESSIONNAME", None)
+        else:
+            os.environ["SESSIONNAME"] = env_bak
 
     for d in (tmpdir, gdir, *( [fixture_root] if fixture_root else [] )):
         shutil.rmtree(d, ignore_errors=True)
