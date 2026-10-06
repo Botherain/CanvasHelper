@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 from dataclasses import dataclass, field
@@ -58,6 +59,38 @@ def _todo_summary(added: int, st: dict) -> str:
     return "，".join(parts)
 
 
+def _probe_session_id() -> int | None:
+    """当前进程的 Windows 会话号；拿不到（非 Windows / 调用失败）返回 None。"""
+    if os.name != "nt":
+        return None
+    try:
+        k32 = ctypes.windll.kernel32
+        sid = ctypes.c_ulong(0)
+        if k32.ProcessIdToSessionId(k32.GetCurrentProcessId(), ctypes.byref(sid)):
+            return int(sid.value)
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _has_interactive_session(session_id: int | None = None) -> bool:
+    """当前进程是否在用户看得见的会话里（能否弹出可见窗口）。
+
+    `session_id` 供测试直接指定；缺省时探测本机。
+
+    判据**不能**用 `SESSIONNAME`：它只存在于登录时的会话环境里，而计划任务的
+    环境是从用户注册表重新构造的——实测计划任务里它为 `None`，拿它当判据会把
+    「每日同步」这条主路径也误判成服务、永远弹不出窗口（踩过一次）。
+    内核会话号才是真相：0 = 服务（没有桌面），1+ = 交互会话。
+    """
+    if session_id is None:
+        session_id = _probe_session_id()
+        if session_id is None:
+            # 拿不到会话号的环境才退回旧判据
+            return bool(os.environ.get("SESSIONNAME"))
+    return session_id > 0
+
+
 def _relogin_headless(cfg: dict, session: CanvasSession, progress: Progress) -> bool:
     """后台（计划任务）模式发现登录过期时的自愈：弹出可见窗口等用户完成 SSO。
 
@@ -69,9 +102,9 @@ def _relogin_headless(cfg: dict, session: CanvasSession, progress: Progress) -> 
     if not auth_cfg.get("popup_on_expiry", True):
         progress("登录已过期（已配置不弹窗），跳过本次后台任务")
         return False
-    if not os.environ.get("SESSIONNAME"):
+    if not _has_interactive_session():
         # 服务 / 会话 0 里没有桌面，弹窗只会白白等满超时
-        progress("登录已过期且当前没有交互会话，无法弹窗")
+        progress("登录已过期且当前没有交互会话（服务 / 会话 0），无法弹窗")
         return False
     timeout = max(10, int(auth_cfg.get("popup_timeout_s", 180)))
     progress(f"登录已过期，弹出登录窗口等待（{timeout} 秒）…")

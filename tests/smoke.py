@@ -533,16 +533,29 @@ def main() -> int:
             self.timeouts.append(timeout_s)
             return self.ok
 
+    # 会话判定：0 = 服务（没有桌面），1+ = 交互会话
+    from canvas_helper.runner import (_has_interactive_session,  # noqa: E402
+                                      _probe_session_id)
+    check("会话 0（服务）判为不可见", _has_interactive_session(0) is False)
+    check("会话 1（交互）判为可见", _has_interactive_session(1) is True)
+    check("会话 4（RDP / 多会话）判为可见", _has_interactive_session(4) is True)
+    if os.name == "nt":
+        _sid = _probe_session_id()
+        check("能探测到本机会话号", _sid is not None, f"sid={_sid!r}")
+
     _log: list[str] = []
     say = _log.append
     env_bak = os.environ.get("SESSIONNAME")
+    import canvas_helper.runner as _runner
+
+    orig_probe = _runner._has_interactive_session
     try:
-        os.environ["SESSIONNAME"] = "Console"
         off = {"auth": {"popup_on_expiry": False, "popup_timeout_s": 99}}
         s1 = _Stub(True)
         check("配置关掉时不自愈", _relogin_headless(off, s1, say) is False)
         check("关闭时根本不碰会话", not s1.timeouts, str(s1.timeouts))
 
+        _runner._has_interactive_session = lambda: True  # 固定在交互会话
         on = {"auth": {"popup_on_expiry": True, "popup_timeout_s": 123}}
         s2 = _Stub(True)
         check("配置开启时尝试自愈", _relogin_headless(on, s2, say) is True)
@@ -559,13 +572,23 @@ def main() -> int:
         _relogin_headless(tiny, s3b, say)
         check("超时下限抬到 10 秒", s3b.timeouts == [10], str(s3b.timeouts))
 
+        # 回归：计划任务环境里 SESSIONNAME 是 None，但确实在交互会话 -> 必须弹。
+        # 拿 SESSIONNAME 判定的老写法在这里返回 False，正是实机踩到的 bug。
         os.environ.pop("SESSIONNAME", None)
+        s5 = _Stub(True)
+        check("计划任务环境（无 SESSIONNAME）仍然弹窗（回归）",
+              _relogin_headless(on, s5, say) is True and s5.timeouts == [123],
+              str(s5.timeouts))
+
+        # 服务 / 会话 0：没有桌面，弹了也没人看得见，别白等满超时
+        _runner._has_interactive_session = lambda: False
         s4 = _Stub(True)
         check("无交互会话时不白等",
               _relogin_headless(on, s4, say) is False and not s4.timeouts,
               str(s4.timeouts))
-        check("每种情况都有进度提示", len(_log) == 5, str(_log))
+        check("每种情况都有进度提示", len(_log) == 6, str(_log))
     finally:
+        _runner._has_interactive_session = orig_probe
         if env_bak is None:
             os.environ.pop("SESSIONNAME", None)
         else:
