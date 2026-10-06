@@ -64,11 +64,12 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install (via pyproject.toml)
-        # 用可编辑安装而非 requirements.txt —— 每次推送都顺带证明打包配置没坏
+      - name: Install (via pyproject.toml + dev extra)
+        # 用可编辑安装而非 requirements.txt —— 每次推送都顺带证明打包配置没坏；
+        # dev extra 里带 pytest，顺带验证它能解析
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .
+          python -m pip install -e ".[dev]"
 
       - name: Verify packaging
         run: |
@@ -79,7 +80,11 @@ jobs:
       - name: Byte-compile
         run: python -m compileall -q canvas_helper tests
 
-      - name: Run offline self-test
+      - name: Run offline self-test (脚本入口)
         # smoke.py 与本机数据解耦：没有真实课程目录 / todo.json 时自动造 fixture，
         # 因此在干净的 runner 上也应当全绿。
         run: python tests/smoke.py
+
+      - name: Run pytest (按小节)
+        # 同一套断言，但拆成 13 个小节用例——失败时能一眼看出是哪一节坏了
+        run: python -m pytest

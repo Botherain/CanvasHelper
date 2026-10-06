@@ -1,4 +1,12 @@
-"""冒烟测试：分类规则、子目录推断、待办合并（不联网、不改动正式数据）。"""
+"""离线自检：分类规则、目录推断、待办合并、登录过期契约、打包元数据。
+
+两种入口共用同一套断言，因此不会出现「脚本绿、pytest 红」的分叉：
+
+* ``python tests/smoke.py`` —— 逐条打印 PASS/FAIL，任一失败退出码 1；
+* ``python -m pytest tests`` —— 按小节拆成独立用例，失败时直接给出该小节明细。
+
+不联网；真实 ``state.json`` / ``pending_todos.json`` 由 conftest 备份还原。
+"""
 
 from __future__ import annotations
 
@@ -40,6 +48,8 @@ from canvas_helper.paths import DEFAULT_CONFIG, load_config  # noqa: E402
 
 PASS = 0
 FAIL = 0
+#: 失败明细。脚本模式用于收尾汇总，pytest 模式由 test_smoke 断言为空。
+FAILURES: list[str] = []
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -50,6 +60,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
     else:
         FAIL += 1
         print(f"  FAIL  {name}  {detail}")
+        FAILURES.append(f"{name}" + (f"  [{detail}]" if detail else ""))
 
 
 # 真实课程目录的结构蓝本。本机有 classes_root 时用真的（更贴近实战），
@@ -92,18 +103,46 @@ COURSE_FIXTURE = {
 }
 
 
-def main() -> int:
-    cfg = load_config()
+# --------------------------------------------------------------------------- #
+# 共用准备（pytest 用 fixture 调，脚本用 main() 调；断言与准备分开，
+# 这样 [1]/[3] 能共享 folders、[5]/[7] 能共享 draft 上下文而不重复跑断言）
+# --------------------------------------------------------------------------- #
+def build_course_root(cfg: dict) -> tuple[Path, Path | None]:
+    """返回 (课程根, 临时造出来的根或 None)。临时根由调用方负责删除。"""
     root = Path(cfg["classes_root"])
-    fixture_root: Path | None = None
-    if not root.is_dir():
-        # CI / 新机器没有真实课程目录：按蓝本造一份，保证测试自洽且与机器无关
-        fixture_root = Path(tempfile.mkdtemp(prefix="ch_courses_"))
-        for course, subs in COURSE_FIXTURE.items():
-            for sub in subs:
-                (fixture_root / course / sub).mkdir(parents=True, exist_ok=True)
-        root = fixture_root
-    folders = course_dirs(root)
+    if root.is_dir():
+        return root, None
+    # CI / 新机器没有真实课程目录：按蓝本造一份，保证测试自洽且与机器无关
+    fixture_root = Path(tempfile.mkdtemp(prefix="ch_courses_"))
+    for course, subs in COURSE_FIXTURE.items():
+        for sub in subs:
+            (fixture_root / course / sub).mkdir(parents=True, exist_ok=True)
+    return fixture_root, fixture_root
+
+
+def build_drafts_ctx(cfg: dict) -> tuple:
+    """[5] 与 [7] 共用的准备：构造课程 + 3 条作业 + build_drafts 结果。"""
+    c = Course(id=1, name="Vision and Image", code="CS0001")
+    items = [
+        Item(course_id=1, module_name="Assignment 2", title="Assignment 2: Segmentation",
+             kind="Assignment", html_url="https://canvas.example.edu/courses/1/assignments/9001",
+             due_at="2026-11-20T15:59:00Z",
+             extra={"description": "<p>完成 <b>U-Net</b> 模型的训练。</p>"}),
+        Item(course_id=1, module_name="Project", title="Final Project Report",
+             kind="Assignment", html_url="https://canvas.example.edu/courses/1/assignments/9002",
+             due_at="2026-12-10T15:59:00Z", extra={}),
+        Item(course_id=1, module_name="Past", title="Old assignment",
+             kind="Assignment", html_url="https://canvas.example.edu/courses/1/assignments/1",
+             due_at="2020-01-01T15:59:00Z", extra={}),
+    ]
+    res = build_drafts({1: c}, {1: items})
+    return c, res
+
+
+# --------------------------------------------------------------------------- #
+# 小节
+# --------------------------------------------------------------------------- #
+def s1_folders(folders: dict) -> None:
     print(f"\n[1] 识别本地课程文件夹 ({len(folders)})")
     for k, v in folders.items():
         print(f"      {k} -> {v.name}")
@@ -111,6 +150,8 @@ def main() -> int:
     check("匹配 CS0001", match_folder("CS0001", folders) is not None)
     check("匹配 CS0006", match_folder("CS0006", folders) is not None)
 
+
+def s2_classify() -> None:
     print("\n[2] 分类规则（文件夹优先 > 文件名 > 类型 > 根目录演示稿）")
     cases = [
         # (Canvas 文件夹路径, 文件名, 类型, 期望分类)
@@ -134,6 +175,8 @@ def main() -> int:
         got = category_of(folder, title, kind)
         check(f"{folder or '(根)'}/{title} -> {want}", got == want, f"got={got}")
 
+
+def s3_resolve(folders: dict) -> None:
     print("\n[3] 目录解析（镜像 Canvas 文件夹 + 跟随本地现状）")
     d5187 = match_folder("CS0001", folders)
     cats = CategoryDirs.scan(d5187)
@@ -173,6 +216,8 @@ def main() -> int:
     p = resolve_dir(cats4, "course files", "", "Syllabus.pdf", "File")
     check("CS0006 根目录 syllabus -> 6.Others", p == cats4.get("other"), str(p))
 
+
+def s4_sanitize() -> None:
     print("\n[4] 文件名清洗 / 编码 / 归一化")
     check("清洗非法字符", sanitize('a/b:c*?.pptx') == "a_b_c__.pptx", sanitize('a/b:c*?.pptx'))
     check("空名兜底", sanitize("   ") == "未命名", sanitize("   "))
@@ -194,21 +239,9 @@ def main() -> int:
           anchor_key("0.jpg") != anchor_key("19403.jpg"),
           f"{anchor_key('0.jpg')!r} / {anchor_key('19403.jpg')!r}")
 
+
+def s5_drafts(c: Course, res, cfg: dict) -> None:
     print("\n[5] 待办草稿 + 合并（副本，不碰真实文件）")
-    c = Course(id=1, name="Vision and Image", code="CS0001")
-    items = [
-        Item(course_id=1, module_name="Assignment 2", title="Assignment 2: Segmentation",
-             kind="Assignment", html_url="https://canvas.example.edu/courses/1/assignments/9001",
-             due_at="2026-11-20T15:59:00Z",
-             extra={"description": "<p>完成 <b>U-Net</b> 模型的训练。</p>"}),
-        Item(course_id=1, module_name="Project", title="Final Project Report",
-             kind="Assignment", html_url="https://canvas.example.edu/courses/1/assignments/9002",
-             due_at="2026-12-10T15:59:00Z", extra={}),
-        Item(course_id=1, module_name="Past", title="Old assignment",
-             kind="Assignment", html_url="https://canvas.example.edu/courses/1/assignments/1",
-             due_at="2020-01-01T15:59:00Z", extra={}),
-    ]
-    res = build_drafts({1: c}, {1: items})
     check("跳过已过期", res.skipped_past == 1, str(res.skipped_past))
     check("生成 2 条草稿", len(res.drafts) == 2, str(len(res.drafts)))
     d0 = res.drafts[0]
@@ -251,8 +284,11 @@ def main() -> int:
           str(new_items[0]["sortOrder"]) if new_items else "")
     shutil.rmtree(tmpdir, ignore_errors=True)
 
-    print("\n[5b] 已完成作业的处理（不写正式文件）")
+
+def s5b_completed() -> None:
     from datetime import datetime
+
+    print("\n[5b] 已完成作业的处理（不写正式文件）")
 
     def _draft(title: str, url: str, due_iso: str) -> TodoDraft:
         return TodoDraft(
@@ -282,8 +318,8 @@ def main() -> int:
     done_idx = {url_a: {"dueDate": due_a, "completedAt": "2026-10-01T00:00:00+00:00"}}
     d2 = _draft("Assignment A", url_a, due_a)
     st2: dict = {}
-    doc2, added2 = merge({"version": 3, "items": []}, [d2], 1440,
-                         done_index=done_idx, stats=st2)
+    _doc2, added2 = merge({"version": 3, "items": []}, [d2], 1440,
+                          done_index=done_idx, stats=st2)
     check("完成并删除后不再冒出来", len(added2) == 0 and st2.get("completed") == 1, str(st2))
     check("状态也是已完成", d2.status == "completed", d2.status)
 
@@ -291,7 +327,7 @@ def main() -> int:
     d3 = _draft("Assignment A", url_a, "2026-11-08T23:59:00+08:00")
     st3: dict = {}
     _doc3, added3 = merge({"version": 3, "items": []}, [d3], 1440,
-                         done_index=done_idx, stats=st3)
+                          done_index=done_idx, stats=st3)
     check("截止时间更新则重新添加", len(added3) == 1 and st3.get("reopened") == 1, str(st3))
     check("状态=截止已更新", d3.status == "reopened", d3.status)
 
@@ -333,14 +369,18 @@ def main() -> int:
     # (7) 只读预判
     prev = Path(tempfile.mkdtemp(prefix="ch_prev_")) / "todo.json"
     prev.write_text(json.dumps(doc4, ensure_ascii=False), encoding="utf-8")
-    got = preview_status(prev, [d4, _draft("Nothing", "https://canvas.example.edu/courses/1/assignments/9999", due_a)])
+    got = preview_status(prev, [d4, _draft("Nothing",
+                                           "https://canvas.example.edu/courses/1/assignments/9999",
+                                           due_a)])
     check("预判已完成", got.get(d4.key) == "completed", str(got))
     check("预判未知项", list(got.values()).count("") == 0 and len(got) == 1, str(got))
     shutil.rmtree(prev.parent, ignore_errors=True)
 
-    print("\n[5c] 一键清理缓存（只扫描，不删除）")
+
+def s5c_cleaner() -> None:
     from canvas_helper import cleaner
 
+    print("\n[5c] 一键清理缓存（只扫描，不删除）")
     targets = cleaner.scan()
     keys = {t.key for t in targets}
     check("扫描出主要缓存项", {"state", "log", "browser"} <= keys, str(sorted(keys)))
@@ -358,8 +398,11 @@ def main() -> int:
     empty = cleaner.run(set())
     check("空勾选不产生任何清理", empty["cleaned"] == [] and empty["bytes"] == 0, str(empty))
 
-    print("\n[6] 下载计划（dry-run，不写盘）")
+
+def s6_plan() -> None:
     from canvas_helper.filesync import build_plan, describe
+
+    print("\n[6] 下载计划（dry-run，不写盘）")
     tmpdir = Path(tempfile.mkdtemp(prefix="ch_plan_"))
     (tmpdir / "3.Assignments").mkdir()
     (tmpdir / "3.Assignments" / "Assignment_1").mkdir()
@@ -397,6 +440,11 @@ def main() -> int:
           str([p.target.name for p in plan2.files]))
     txt = describe([plan])
     check("预览文本可渲染", "合计" in txt and "CS9999" in txt, txt[:80])
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def s6b_local() -> None:
+    from canvas_helper.filesync import build_plan
 
     print("\n[6b] 本地已有内容的识别（不重复下载 / 纯数字名不误判）")
     tmp2 = Path(tempfile.mkdtemp(prefix="ch_anchor_"))
@@ -423,6 +471,11 @@ def main() -> int:
     check("同路径优先报本地已存在",
           plan4.files[0].action == "exists" and plan4.files[0].note == "本地已存在",
           plan4.files[0].note)
+    shutil.rmtree(tmp2, ignore_errors=True)
+
+
+def s6c_rename() -> None:
+    from canvas_helper.filesync import build_plan
 
     print("\n[6c] 改名后缀 (1)/(2) 不会导致重复下载")
     tmp3 = Path(tempfile.mkdtemp(prefix="ch_rename_"))
@@ -455,8 +508,11 @@ def main() -> int:
           f"{p7.files[0].action} {p7.files[0].target.name}")
     shutil.rmtree(tmp3, ignore_errors=True)
 
-    print("\n[7] 附加功能：GradeNeed / .ics / 每周摘要")
+
+def s7_extras(c: Course, drafts: list) -> None:
     from canvas_helper.extras import build_ics, update_grade_file, weekly_report
+
+    print("\n[7] 附加功能：GradeNeed / .ics / 每周摘要")
     gdir = Path(tempfile.mkdtemp(prefix="ch_grade_"))
     gdir.mkdir(exist_ok=True)
     (gdir / "GradeNeed.txt").write_text("本课程成绩需要\nExam+Assignment\n", encoding="utf-8")
@@ -472,21 +528,24 @@ def main() -> int:
     check("成绩块不重复追加", txt2.count("Canvas 成绩") == 1, str(txt2.count("Canvas 成绩")))
     check("刷新为最新", "80.0%" in txt2, txt2)
 
-    ics = build_ics(res.drafts)
+    ics = build_ics(drafts)
     check("ics 头尾", ics.startswith("BEGIN:VCALENDAR") and ics.endswith("END:VCALENDAR\r\n"))
     check("ics 两条事件", ics.count("BEGIN:VEVENT") == 2, str(ics.count("BEGIN:VEVENT")))
     check("ics 含提前一天提醒", "TRIGGER:-P1D" in ics)
     check("ics 换行 CRLF", "\r\n" in ics)
 
-    rep = weekly_report(gdir, c, [gdir / "x.pdf"], [], res.drafts)
+    rep = weekly_report(gdir, c, [gdir / "x.pdf"], [], drafts)
     body = rep.read_text(encoding="utf-8")
     check("周报含截止项", "CS0001" in body and "本周截止" in body, body[:80])
     check("周报文件名规范", rep.name.startswith("本周摘要-"), rep.name)
+    shutil.rmtree(gdir, ignore_errors=True)
 
-    print("\n[8] 登录过期不再静默失败")
+
+def s8_auth() -> None:
     from canvas_helper import paths as _paths
     from canvas_helper.runner import _relogin_headless
 
+    print("\n[8] 登录过期不再静默失败")
     check("默认弹窗自愈", DEFAULT_CONFIG["auth"]["popup_on_expiry"] is True)
     check("默认弹窗 180 秒", DEFAULT_CONFIG["auth"]["popup_timeout_s"] == 180)
 
@@ -605,9 +664,11 @@ def main() -> int:
         else:
             os.environ["SESSIONNAME"] = env_bak
 
-    print("\n[9] 打包元数据 pyproject.toml")
+
+def s9_packaging() -> None:
     from canvas_helper import __version__ as _ver
 
+    print("\n[9] 打包元数据 pyproject.toml")
     pt_path = ROOT / "pyproject.toml"
     check("pyproject.toml 存在", pt_path.is_file(), str(pt_path))
     pt = pt_path.read_text(encoding="utf-8") if pt_path.is_file() else ""
@@ -624,10 +685,38 @@ def main() -> int:
     check("声明 MIT 且 LICENSE 存在",
           'license = "MIT"' in pt and (ROOT / "LICENSE").is_file())
 
-    for d in (tmpdir, gdir, *( [fixture_root] if fixture_root else [] )):
-        shutil.rmtree(d, ignore_errors=True)
+
+# --------------------------------------------------------------------------- #
+# 脚本入口
+# --------------------------------------------------------------------------- #
+def main() -> int:
+    cfg = load_config()
+    root, fixture_root = build_course_root(cfg)
+    folders = course_dirs(root)
+    c, res = build_drafts_ctx(cfg)
+
+    s1_folders(folders)
+    s2_classify()
+    s3_resolve(folders)
+    s4_sanitize()
+    s5_drafts(c, res, cfg)
+    s5b_completed()
+    s5c_cleaner()
+    s6_plan()
+    s6b_local()
+    s6c_rename()
+    s7_extras(c, res.drafts)
+    s8_auth()
+    s9_packaging()
+
+    if fixture_root is not None:
+        shutil.rmtree(fixture_root, ignore_errors=True)
 
     print(f"\n结果: {PASS} 通过, {FAIL} 失败")
+    if FAILURES:
+        print("失败明细:")
+        for f in FAILURES:
+            print(f"  ✗ {f}")
     return 1 if FAIL else 0
 
 

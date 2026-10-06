@@ -218,7 +218,9 @@ CanvasHelper\
 │  ├─ scheduler.py   Windows 计划任务
 │  ├─ runner.py      流程编排（含登录过期的弹窗自愈）
 │  └─ gui.py         tkinter 界面
-├─ tests\smoke.py    离线自检（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理 / 登录过期）
+├─ tests\smoke.py     离线自检的实现（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理 / 登录过期）
+├─ tests\conftest.py  pytest 夹具（副作用隔离、课程目录、待办草稿上下文）
+├─ tests\test_smoke.py  把自检按小节交给 pytest 执行
 ├─ config.example.json  配置模板（可写数据不在这里，见「数据目录」）
 ├─ LICENSE
 └─ 启动Canvas助手.bat   用 %~dp0，位置随意
@@ -234,18 +236,33 @@ CanvasHelper\
 - 对因使用本工具造成的任何数据丢失、账号问题，作者不承担责任。
 - 与 Instructure、Canvas 及任何院校**均无关联**，也未获其背书。
 
-## 自检
+## 自检与静态检查
 
 ```powershell
-python tests\smoke.py
+python tests\smoke.py      # 脚本入口：逐条 PASS/FAIL，任一失败退出码 1
+python -m pytest           # 同一套断言，按小节拆成 13 个用例
+python -m ruff check canvas_helper tests
+python -m mypy
 ```
 
-116 项全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器
-（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 116/116。
+后三个都是 dev extra 里的工具：`python -m pip install -e ".[dev]"`。
+
+129 项断言全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器
+（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 129/129。
+
+两种入口共用同一份实现（`tests\smoke.py` 里的 `s1_…`～`s9_…`），因此不会出现
+「脚本绿、pytest 红」的分叉。小节之间只通过夹具共享数据，**任意一节都能单独跑**：
+
+```powershell
+python -m pytest -k test_7      # 只跑「附加功能」，它依赖的 [5] 草稿由夹具提供
+```
+
+失败时 pytest 直接列出该小节**全部**失败项（不是在第一条就中止）。
 
 每次推送到 `main` 及每个 PR 都会由
 [GitHub Actions](https://github.com/Botherain/CanvasHelper/actions/workflows/ci.yml)
-在 Windows × Python 3.11/3.12/3.13/3.14 上各跑一遍。
+在 Windows × Python 3.11/3.12/3.13/3.14 上各跑一遍；另有一个 `lint` job 跑
+ruff + mypy。
 
 ## 注意
 

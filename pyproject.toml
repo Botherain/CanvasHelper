@@ -106,3 +106,12 @@ module = "tests.*"
 # 「离线跑、不依赖真实 Playwright」的设计前提；给替身硬套类型层次只会造假。
 # tests 仍受 ruff 约束（E/F/I/UP/B/SIM/PERF… 全绿），功能由 129 项断言保证。
 ignore_errors = true
+
+# ---------------------------------------------------------------------------
+# pytest（python -m pytest ；CI 每次推送都跑）
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# smoke.py 是「实现 + 脚本入口」，由 test_smoke 按小节调用，不要被直接收集
+python_files = ["test_*.py"]
+addopts = "-ra"
