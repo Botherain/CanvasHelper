@@ -9,11 +9,11 @@ import shutil
 import subprocess
 import time
 import uuid
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
-from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from .canvas_api import Course, Item
@@ -22,7 +22,7 @@ from .paths import PENDING_PATH, get_logger, load_state, now_hk, save_state
 log = get_logger()
 HK = ZoneInfo("Asia/Hong_Kong")
 
-CANVAS_URL_RE = re.compile(r"https?://canvas\.example\.edu[^\s)\]>]*", re.I)
+CANVAS_URL_RE = re.compile(r"https?://canvas\.example\.edu[^\s)\]>]*", re.IGNORECASE)
 HTML_RE = re.compile(r"<[^>]+>")
 
 
@@ -65,11 +65,11 @@ def _parse_due(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(value)  # 3.11+ 原生支持结尾的 Z
     except ValueError:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(HK)
 
 
@@ -205,7 +205,7 @@ def _same_due(a: str | None, b: str | None) -> bool:
 def load_done_index() -> dict[str, dict]:
     try:
         return dict(load_state().get("todo_done") or {})
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("读取已完成待办记录失败: %s", exc)
         return {}
 
@@ -215,7 +215,7 @@ def save_done_index(index: dict[str, dict]) -> None:
         state = load_state()
         state["todo_done"] = index
         save_state(state)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("保存已完成待办记录失败: %s", exc)
 
 
@@ -229,7 +229,7 @@ def attachment_type(path: Path) -> str:
 
 
 def _make_item(draft: TodoDraft, sort_order: int, offset_minutes: int) -> dict:
-    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    now = datetime.now(UTC).isoformat(timespec="microseconds")
     attachments = []
     if draft.attachment and draft.attachment.exists():
         attachments.append(
@@ -401,7 +401,7 @@ def fix_paths(doc: dict) -> int:
             p = att.get("filePath") or ""
             if not p or os.path.exists(p):
                 continue
-            m = re.search(r"^(.*Courses)\\(.*)$", p, re.I)
+            m = re.search(r"^(.*Courses)\\(.*)$", p, re.IGNORECASE)
             if not m:
                 continue
             cand = f"{m.group(1)}\\Classes\\{m.group(2)}"
@@ -463,7 +463,7 @@ def _deskbox_pids(name: str = "DeskBox") -> list[int]:
     try:
         out = subprocess.run(
             ["tasklist", "/FI", f"IMAGENAME eq {name}.exe", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=15, check=False,
             encoding="locale", errors="replace",
         ).stdout
     except Exception as exc:
@@ -473,10 +473,8 @@ def _deskbox_pids(name: str = "DeskBox") -> list[int]:
     for line in out.splitlines():
         parts = line.replace('"', "").split(",")
         if len(parts) >= 2 and parts[0].lower().startswith(name.lower()):
-            try:
+            with suppress(ValueError):
                 pids.append(int(parts[1]))
-            except ValueError:
-                pass
     return pids
 
 
@@ -490,14 +488,16 @@ def stop(timeout_s: float = 2.0) -> bool:
     if not pids:
         return True
     for pid in pids:
-        subprocess.run(["taskkill", "/PID", str(pid)], capture_output=True, timeout=15)
+        subprocess.run(["taskkill", "/PID", str(pid)], capture_output=True, timeout=15,
+                       check=False)
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if not _deskbox_pids():
             return True
         time.sleep(0.15)
     for pid in _deskbox_pids():
-        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=15)
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True,
+                       timeout=15, check=False)
     time.sleep(0.2)
     return not _deskbox_pids()
 
@@ -569,22 +569,21 @@ def quick_swap(
 # ---------- 后台策略：排队 ----------
 
 def enqueue_pending(drafts: list[TodoDraft]) -> int:
-    items = []
-    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
-    for d in drafts:
-        items.append(
-            {
-                "text": d.text,
-                "dueDate": _fmt_due(d.due) if d.due else None,
-                "colorMarker": d.color,
-                "notes": d.notes or None,
-                "url": d.url,
-                "course": d.course.short,
-                "kind": d.kind,
-                "attachment": str(d.attachment) if d.attachment else None,
-                "createdAt": now,
-            }
-        )
+    now = datetime.now(UTC).isoformat(timespec="microseconds")
+    items = [
+        {
+            "text": d.text,
+            "dueDate": _fmt_due(d.due) if d.due else None,
+            "colorMarker": d.color,
+            "notes": d.notes or None,
+            "url": d.url,
+            "course": d.course.short,
+            "kind": d.kind,
+            "attachment": str(d.attachment) if d.attachment else None,
+            "createdAt": now,
+        }
+        for d in drafts
+    ]
     existing = []
     if PENDING_PATH.exists():
         try:

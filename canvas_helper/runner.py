@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 import ctypes
-import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from typing import Callable
 
-from . import deskbox, extras, scheduler
+from . import deskbox, extras
 from .auth import AuthRequired, CanvasSession
 from .canvas_api import CanvasAPI, Course, Item
 from .classify import course_dirs, match_folder
 from .filesync import CoursePlan, build_plan, describe, execute_plan
-from .paths import (DEFAULT_CATEGORIES, get_logger, load_config, load_state,
-                    mark_auth_needed, now_hk, save_config, save_state)
+from .paths import (
+    get_logger,
+    load_config,
+    load_state,
+    mark_auth_needed,
+    now_hk,
+    save_state,
+)
 
 log = get_logger()
 Progress = Callable[[str], None]
@@ -68,7 +73,7 @@ def _probe_session_id() -> int | None:
         sid = ctypes.c_ulong(0)
         if k32.ProcessIdToSessionId(k32.GetCurrentProcessId(), ctypes.byref(sid)):
             return int(sid.value)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     return None
 
@@ -235,7 +240,7 @@ def run_sync(
                     if s:
                         d.status = s
                         d.existing = True
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.debug("待办状态预判失败: %s", exc)
 
         if drafts.drafts:
@@ -399,7 +404,7 @@ def run_report(cfg: dict | None = None, headless: bool = False, progress: Progre
         week_start = now_hk() - timedelta(days=7)
         state = load_state()
         new_by_course: dict[int, list[Path]] = {}
-        for key, rec in state.get("files", {}).items():
+        for rec in state.get("files", {}).values():
             try:
                 synced = rec.get("synced_at") or ""
                 if synced >= week_start.isoformat(timespec="seconds"):

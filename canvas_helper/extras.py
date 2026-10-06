@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import html
-import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Callable
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from .canvas_api import CanvasAPI, Course, Item
-from .deskbox import TodoDraft, _parse_due, _strip_html
+from .canvas_api import CanvasAPI, Course
+from .deskbox import TodoDraft, _strip_html
 from .paths import ICS_PATH, get_logger, load_state, now_hk, save_state
 
 log = get_logger()
@@ -47,17 +45,17 @@ def collect_notices(
         except Exception as exc:
             log.warning("%s 公告读取失败: %s", c.short, exc)
             continue
-        for r in rows:
-            out.append(
-                Notice(
-                    course=c.short,
-                    title=html.unescape(r.get("title") or "(无标题)"),
-                    body=_strip_html(r.get("message") or "", 400),
-                    posted_at=(r.get("posted_at") or r.get("created_at") or "")[:19].replace("T", " "),
-                    url=r.get("html_url") or f"https://canvas.example.edu/courses/{c.id}",
-                    kind="announcement",
-                )
+        out.extend(
+            Notice(
+                course=c.short,
+                title=html.unescape(r.get("title") or "(无标题)"),
+                body=_strip_html(r.get("message") or "", 400),
+                posted_at=(r.get("posted_at") or r.get("created_at") or "")[:19].replace("T", " "),
+                url=r.get("html_url") or f"https://canvas.example.edu/courses/{c.id}",
+                kind="announcement",
             )
+            for r in rows
+        )
     try:
         for r in api.activity_stream():
             if r.get("type") not in ("Announcement", "Conversation", "DiscussionTopic"):
@@ -144,7 +142,7 @@ def collect_grades(api: CanvasAPI, courses: list[Course]) -> dict[int, dict]:
     return out
 
 
-GRADE_HEADER_RE = re.compile(r"^-{3}\s*Canvas 成绩.*?-{3}\s*$", re.M | re.S)
+GRADE_HEADER_RE = re.compile(r"^-{3}\s*Canvas 成绩.*?-{3}\s*$", re.MULTILINE | re.DOTALL)
 
 
 def update_grade_file(course_dir: Path, course: Course, data: dict) -> Path | None:
@@ -160,8 +158,7 @@ def update_grade_file(course_dir: Path, course: Course, data: dict) -> Path | No
     if not rows:
         block_lines.append("（暂无已出分项目）")
     else:
-        for r in rows:
-            block_lines.append("· " + r.label)
+        block_lines.extend("· " + r.label for r in rows)
     block = "\n".join(block_lines) + "\n"
 
     original = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
@@ -182,7 +179,7 @@ def build_ics(drafts: list[TodoDraft], calendar_name: str = "Canvas 截止日程
     def esc(s: str) -> str:
         return s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -195,8 +192,8 @@ def build_ics(drafts: list[TodoDraft], calendar_name: str = "Canvas 截止日程
         if not d.due:
             continue
         uid = f"canvas{i}-{abs(hash(d.key)) % 10**9}@canvashelper"
-        dtstart = d.due.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        dtend = (d.due + timedelta(hours=1)).astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        dtstart = d.due.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+        dtend = (d.due + timedelta(hours=1)).astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
         lines += [
             "BEGIN:VEVENT",
             f"UID:{uid}",

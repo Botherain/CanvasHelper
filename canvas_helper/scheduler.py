@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
-from pathlib import Path
 
 from .paths import PROJECT_DIR, get_logger
 
@@ -28,8 +26,10 @@ def _cmd(sub: str) -> str:
 
 def _run(args: list[str]) -> tuple[bool, str]:
     try:
+        # check=False 是刻意的：调用方按 rc 分支处理，失败信息靠下面的日志回报
         out = subprocess.run(args, capture_output=True, text=True, timeout=30,
-                             encoding="locale", errors="replace", creationflags=0x08000000)
+                             encoding="locale", errors="replace", creationflags=0x08000000,
+                             check=False)
     except Exception as exc:
         log.error("schtasks 执行失败: %s", exc)
         return False, str(exc)

@@ -10,13 +10,21 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from . import deskbox
-from .paths import (ICS_PATH, LOG_PATH, PROFILE_DIR, SESSION_PATH, STATE_PATH,
-                    get_logger, load_state, save_state)
+from .paths import (
+    ICS_PATH,
+    LOG_PATH,
+    PROFILE_DIR,
+    SESSION_PATH,
+    STATE_PATH,
+    get_logger,
+    load_state,
+    save_state,
+)
 
 log = get_logger()
 
@@ -95,9 +103,7 @@ def browser_cache_paths(root: Path | None = None) -> list[Path]:
         if name in _KEEP_NAMES:
             continue
         # 只在命中缓存名时收，且绝不进入被保留的子树
-        if p.is_dir() and name in _CACHE_NAMES:
-            out.append(p)
-        elif p.is_file() and name in _CACHE_FILES:
+        if (p.is_dir() and name in _CACHE_NAMES) or (p.is_file() and name in _CACHE_FILES):
             out.append(p)
     return out
 
@@ -131,7 +137,7 @@ def scan() -> list[Target]:
             "清除后下次同步会重新核对文件（有本地内容识别兜底，不会重复下载）。",
             3, size, default=True,
         ))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("扫描 state 失败: %s", exc)
 
     # 2) 后台排队待办
@@ -145,7 +151,7 @@ def scan() -> list[Target]:
                 "清理后这些截止提醒会丢失。",
                 1, size, default=False, destructive=True,
             ))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("扫描排队待办失败: %s", exc)
 
     # 3) 导出的日历
@@ -185,7 +191,7 @@ def scan() -> list[Target]:
                     "清理时保留已完成那条（需要短暂重启 DeskBox）。",
                     len(removed), 0, default=False, destructive=True,
                 ))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("扫描重复待办失败: %s", exc)
 
     # 7) 登录态

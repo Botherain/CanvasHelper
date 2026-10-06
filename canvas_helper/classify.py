@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from .canvas_api import Item
 from .paths import DEFAULT_CATEGORIES, get_logger
@@ -36,7 +36,7 @@ _RULES: list[tuple[str, str]] = [
 ]
 
 WORD_RULES: list[tuple[str, re.Pattern]] = [
-    (key, re.compile(pattern, re.I)) for key, pattern in _RULES
+    (key, re.compile(pattern, re.IGNORECASE)) for key, pattern in _RULES
 ]
 
 # 各分类内部允许的数字子目录样式（正则前缀）
@@ -67,7 +67,7 @@ def course_dirs(root: Path) -> dict[str, Path]:
     for p in sorted(root.iterdir()):
         if not p.is_dir():
             continue
-        m = re.match(r"^(CS\s*\d{4,5})", p.name, re.I)
+        m = re.match(r"^(CS\s*\d{4,5})", p.name, re.IGNORECASE)
         if m:
             out[m.group(1).replace(" ", "").upper()] = p
         else:
@@ -94,7 +94,7 @@ class CategoryDirs:
     paths: dict[str, Path]
 
     @classmethod
-    def scan(cls, course_dir: Path) -> "CategoryDirs":
+    def scan(cls, course_dir: Path) -> CategoryDirs:
         found: dict[str, Path] = {}
         if course_dir.is_dir():
             for p in sorted(course_dir.iterdir()):

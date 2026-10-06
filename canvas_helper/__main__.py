@@ -30,8 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "sync":
         from .runner import run_sync
 
-        res = run_sync(headless=True if headless else False,
-                       progress=lambda m: log.info(m))
+        res = run_sync(headless=headless,
+                       progress=log.info)
         log.info("同步统计: %s", res.stats)
         if getattr(res, "auth_required", False):
             # 退出码 2 专门表示「登录过期」，与一般的 1（其他错误）区分开
@@ -45,15 +45,15 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "report":
         from .runner import run_report
 
-        paths = run_report(headless=True if headless else False,
-                           progress=lambda m: log.info(m))
+        paths = run_report(headless=headless,
+                           progress=log.info)
         log.info("生成 %d 份摘要", len(paths))
         return 0
 
     if cmd == "preview":
         from .runner import run_sync
 
-        res = run_sync(dry_run=True, progress=lambda m: log.info(m))
+        res = run_sync(dry_run=True, progress=log.info)
         print(res.text)
         if res.errors:
             print("\n警告:")
@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         from .auth import CanvasSession
 
         with CanvasSession() as s:
-            ok = s.ensure_login(on_status=lambda m: log.info(m))
+            ok = s.ensure_login(on_status=log.info)
             log.info("登录结果: %s", ok)
             if ok and s.profile:
                 log.info("用户: %s", s.profile.get("name"))
@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         from .canvas_api import CanvasAPI
 
         with CanvasSession() as s:
-            if not s.ensure_login(on_status=lambda m: log.info(m)):
+            if not s.ensure_login(on_status=log.info):
                 return 1
             for c in CanvasAPI(s).courses():
                 print(f"{c.id}\t{c.short}\t{c.name}")
@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "flush":
         from .runner import flush_pending
 
-        n = flush_pending(progress=lambda m: log.info(m))
+        n = flush_pending(progress=log.info)
         log.info("写入 %d 条排队待办", n)
         return 0
 
@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"     {t.detail}")
             print("\n* 为默认清理项。执行：python -m canvas_helper clean [--login] [--todos] [--pending]")
             return 0
-        progress = lambda m: log.info(m)  # noqa: E731
+        progress = log.info
         rep = cleaner.run(keys, progress=progress)
         for m in rep["messages"]:
             log.info(m)

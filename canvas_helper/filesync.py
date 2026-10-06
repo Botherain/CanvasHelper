@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import json
-import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from .canvas_api import CanvasAPI, Course, Item
 from .classify import build_local_index, ensure_parent, plan_item, sanitize, unique_path
-from .paths import get_logger, load_state, now_hk, save_state
+from .paths import get_logger, now_hk
 
 log = get_logger()
 ProgressCb = Callable[[str], None]
@@ -95,14 +92,13 @@ def build_plan(course: Course, folder: Path, items: list[Item], state: dict) -> 
 
         # 同名不同内容 -> 内容可能放在别的分类里，或上次已存成 x (1).pptx
         hit = local.find(item.display_name, size)
-        same_content = hit is not None
 
         if target.exists():
             actual = target.stat().st_size
             if size is None or actual == size:
                 plan.files.append(PlannedFile(item, target, "exists", actual, "本地已存在"))
                 continue
-            if same_content and hit != target:
+            if hit is not None and hit != target:
                 plan.files.append(
                     PlannedFile(item, hit, "exists", size, "本地已有同内容文件"))
                 continue
@@ -110,7 +106,7 @@ def build_plan(course: Course, folder: Path, items: list[Item], state: dict) -> 
             plan.files.append(PlannedFile(item, target, "rename", size, "重名已改名"))
             continue
 
-        if same_content:
+        if hit is not None:
             plan.files.append(
                 PlannedFile(item, hit, "exists", size, "本地已有同内容文件"))
             continue
@@ -136,7 +132,7 @@ def execute_plan(
                 progress("已中止")
                 _flush_state(state)
                 return stats
-            if pf.action in ("exists",):
+            if pf.action == "exists":
                 stats["exists"] += 1
                 continue
             try:
@@ -150,8 +146,11 @@ def execute_plan(
                     _record(state, plan.course.id, pf.item, pf.target, kind="page")
                     dirty = True
                 else:
+                    url = pf.item.file_url
+                    if not url:
+                        raise ValueError(f"{pf.item.display_name} 缺少下载地址")
                     progress(f"下载 {plan.course.short} · {pf.target.name}")
-                    data, header_name, _ctype = api.download(pf.item.file_url)
+                    data, header_name, _ctype = api.download(url)
                     if header_name and not pf.target.suffix:
                         pf.target = pf.target.with_name(sanitize(header_name))
                     pf.target.write_bytes(data)
@@ -218,11 +217,12 @@ def describe(plans: list[CoursePlan]) -> str:
 def _fmt_size(n: int | None) -> str:
     if not n:
         return "0 B"
+    size = float(n)
     for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024:
-            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
-        n /= 1024
-    return f"{n:.1f} TB"
+        if size < 1024:
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 
 def _kind_label(pf: PlannedFile) -> str:

@@ -7,7 +7,8 @@ import logging
 import os
 import shutil
 import sys
-from datetime import datetime
+from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,10 +42,8 @@ def _bootstrap() -> None:
     for name in _LEGACY_FILES:
         dst, src = DATA_DIR / name, PROJECT_DIR / name
         if src.is_file() and not dst.exists():
-            try:
+            with suppress(OSError):
                 shutil.copy2(src, dst)
-            except OSError:
-                pass
 
 
 _bootstrap()
@@ -254,17 +253,14 @@ def clear_auth_needed() -> bool:
 
 
 def now_hk():
-    from datetime import timezone
 
     from zoneinfo import ZoneInfo
 
-    return datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Hong_Kong"))
+    return datetime.now(UTC).astimezone(ZoneInfo("Asia/Hong_Kong"))
 
 
 def ensure_dirs() -> None:
     for d in (DATA_DIR, PROFILE_DIR):
-        try:
+        with suppress(OSError):
             d.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
     _bootstrap()  # 兜底：import 时目录若没建成，这里再搬一次旧数据

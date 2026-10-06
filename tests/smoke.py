@@ -20,10 +20,22 @@ sys.path.insert(0, str(ROOT))
 
 from canvas_helper.canvas_api import Course, Item, decode_name  # noqa: E402
 from canvas_helper.classify import (  # noqa: E402
-    CategoryDirs, anchor_key, category_of, course_dirs, match_folder, plan_item,
-    resolve_dir, sanitize)
-from canvas_helper.deskbox import (TodoDraft, build_drafts, dedupe_completed,  # noqa: E402
-                                   load_doc, merge, preview_status)
+    CategoryDirs,
+    anchor_key,
+    category_of,
+    course_dirs,
+    match_folder,
+    resolve_dir,
+    sanitize,
+)
+from canvas_helper.deskbox import (  # noqa: E402
+    TodoDraft,
+    build_drafts,
+    dedupe_completed,
+    load_doc,
+    merge,
+    preview_status,
+)
 from canvas_helper.paths import DEFAULT_CONFIG, load_config  # noqa: E402
 
 PASS = 0
@@ -217,7 +229,7 @@ def main() -> int:
             "version": 3,
             "items": [
                 {"id": f"seed{i}", "text": f"Seed item {i}", "isCompleted": False,
-                 "dueDate": "2026-01-0%dT00:00:00+08:00" % i,
+                 "dueDate": f"2026-01-0{i}T00:00:00+08:00",
                  "notes": "", "sortOrder": i}
                 for i in range(1, 4)
             ],
@@ -240,7 +252,7 @@ def main() -> int:
     shutil.rmtree(tmpdir, ignore_errors=True)
 
     print("\n[5b] 已完成作业的处理（不写正式文件）")
-    from datetime import datetime  # noqa: E402
+    from datetime import datetime
 
     def _draft(title: str, url: str, due_iso: str) -> TodoDraft:
         return TodoDraft(
@@ -278,7 +290,7 @@ def main() -> int:
     # (3) 截止时间变了 -> 视为新截止，重新提醒
     d3 = _draft("Assignment A", url_a, "2026-11-08T23:59:00+08:00")
     st3: dict = {}
-    doc3, added3 = merge({"version": 3, "items": []}, [d3], 1440,
+    _doc3, added3 = merge({"version": 3, "items": []}, [d3], 1440,
                          done_index=done_idx, stats=st3)
     check("截止时间更新则重新添加", len(added3) == 1 and st3.get("reopened") == 1, str(st3))
     check("状态=截止已更新", d3.status == "reopened", d3.status)
@@ -295,7 +307,7 @@ def main() -> int:
 
     # (5) 无链接草稿的 key 用统一时间格式（否则永远匹配不上）
     check("草稿 key 与 todo.json 时间格式一致",
-          d4.key == f"CS0001 · Quiz 1|2026-11-03T23:59:00+08:00", d4.key)
+          d4.key == "CS0001 · Quiz 1|2026-11-03T23:59:00+08:00", d4.key)
 
     # (6) 去重：只删「已完成条目」的未完成重复项
     doc5 = {"version": 3, "items": [
@@ -327,7 +339,7 @@ def main() -> int:
     shutil.rmtree(prev.parent, ignore_errors=True)
 
     print("\n[5c] 一键清理缓存（只扫描，不删除）")
-    from canvas_helper import cleaner  # noqa: E402
+    from canvas_helper import cleaner
 
     targets = cleaner.scan()
     keys = {t.key for t in targets}
@@ -347,7 +359,7 @@ def main() -> int:
     check("空勾选不产生任何清理", empty["cleaned"] == [] and empty["bytes"] == 0, str(empty))
 
     print("\n[6] 下载计划（dry-run，不写盘）")
-    from canvas_helper.filesync import build_plan, describe  # noqa: E402
+    from canvas_helper.filesync import build_plan, describe
     tmpdir = Path(tempfile.mkdtemp(prefix="ch_plan_"))
     (tmpdir / "3.Assignments").mkdir()
     (tmpdir / "3.Assignments" / "Assignment_1").mkdir()
@@ -444,7 +456,7 @@ def main() -> int:
     shutil.rmtree(tmp3, ignore_errors=True)
 
     print("\n[7] 附加功能：GradeNeed / .ics / 每周摘要")
-    from canvas_helper.extras import build_ics, update_grade_file, weekly_report  # noqa: E402
+    from canvas_helper.extras import build_ics, update_grade_file, weekly_report
     gdir = Path(tempfile.mkdtemp(prefix="ch_grade_"))
     gdir.mkdir(exist_ok=True)
     (gdir / "GradeNeed.txt").write_text("本课程成绩需要\nExam+Assignment\n", encoding="utf-8")
@@ -472,8 +484,8 @@ def main() -> int:
     check("周报文件名规范", rep.name.startswith("本周摘要-"), rep.name)
 
     print("\n[8] 登录过期不再静默失败")
-    from canvas_helper import paths as _paths  # noqa: E402
-    from canvas_helper.runner import _relogin_headless  # noqa: E402
+    from canvas_helper import paths as _paths
+    from canvas_helper.runner import _relogin_headless
 
     check("默认弹窗自愈", DEFAULT_CONFIG["auth"]["popup_on_expiry"] is True)
     check("默认弹窗 180 秒", DEFAULT_CONFIG["auth"]["popup_timeout_s"] == 180)
@@ -492,7 +504,7 @@ def main() -> int:
 
         # 真正的契约：后台同步发现过期 -> 必须置 auth_required 并留下标记，
         # 而不是只往 sync.log 里丢一行没人看的 warning
-        from canvas_helper.runner import run_sync  # noqa: E402
+        from canvas_helper.runner import run_sync
 
         class _DeadSession:
             """登录态已失效的会话桩。"""
@@ -534,8 +546,7 @@ def main() -> int:
             return self.ok
 
     # 会话判定：0 = 服务（没有桌面），1+ = 交互会话
-    from canvas_helper.runner import (_has_interactive_session,  # noqa: E402
-                                      _probe_session_id)
+    from canvas_helper.runner import _has_interactive_session, _probe_session_id
     check("会话 0（服务）判为不可见", _has_interactive_session(0) is False)
     check("会话 1（交互）判为可见", _has_interactive_session(1) is True)
     check("会话 4（RDP / 多会话）判为可见", _has_interactive_session(4) is True)
@@ -595,7 +606,7 @@ def main() -> int:
             os.environ["SESSIONNAME"] = env_bak
 
     print("\n[9] 打包元数据 pyproject.toml")
-    from canvas_helper import __version__ as _ver  # noqa: E402
+    from canvas_helper import __version__ as _ver
 
     pt_path = ROOT / "pyproject.toml"
     check("pyproject.toml 存在", pt_path.is_file(), str(pt_path))

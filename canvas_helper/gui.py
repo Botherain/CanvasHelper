@@ -6,12 +6,13 @@ import queue
 import subprocess
 import threading
 import tkinter as tk
+from contextlib import suppress
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
+from typing import Any
 
-from . import APP_NAME, __version__
-from . import deskbox, runner, scheduler
+from . import APP_NAME, __version__, deskbox, runner, scheduler
 from .canvas_api import Course
 from .classify import course_dirs, match_folder
 from .paths import LOG_PATH, PROFILE_DIR, get_logger, load_config, load_state, now_hk, save_config
@@ -30,10 +31,12 @@ class App(tk.Tk):
         self.minsize(980, 640)
         self.cfg = load_config()
         self.q: queue.Queue = queue.Queue()
-        self.busy = False
+        self._busy = False
         self.courses: list[Course] = []
-        self.course_folders: dict[int, Path] = {}
-        self.result = None
+        self.course_folders: dict[int, Path | None] = {}  # match_folder 可能无匹配
+        # 身兼二职：同步跑完是 SyncResult，只跑截止收集时是 SimpleNamespace(drafts=...)，
+        # 两者的取用方都只认 .drafts（多数还带 getattr 默认值），故此处不做强类型约束
+        self.result: Any = None
         self._on_done = None
         self._on_error = None
 
@@ -69,10 +72,10 @@ class App(tk.Tk):
 
     def bg(self, fn, on_done=None, on_error=None) -> bool:
         """在后台线程运行 fn，避免阻塞界面。"""
-        if self.busy:
+        if self._busy:
             messagebox.showinfo(APP_NAME, "有任务正在进行，请稍候。")
             return False
-        self.busy = True
+        self._busy = True
         self._on_done = on_done
         self._on_error = on_error
         self.progress_bar.start(12)
@@ -81,7 +84,7 @@ class App(tk.Tk):
         def work():
             try:
                 self.q.put(("done", fn()))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.exception("后台任务失败")
                 self.q.put(("error", exc))
 
@@ -110,7 +113,7 @@ class App(tk.Tk):
         self.after(100, self._pump)
 
     def _finish(self) -> None:
-        self.busy = False
+        self._busy = False
         self.progress_bar.stop()
         self._set_status("就绪")
 
@@ -119,7 +122,7 @@ class App(tk.Tk):
             return
         try:
             fn(payload)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.exception("回调执行失败")
             self.log(f"回调错误：{exc}")
             messagebox.showerror(APP_NAME, str(exc))
@@ -136,10 +139,8 @@ class App(tk.Tk):
     def _build_ui(self) -> None:
         self.option_add("*Font", FONT)
         style = ttk.Style(self)
-        try:
+        with suppress(tk.TclError):
             style.theme_use("vista")
-        except tk.TclError:
-            pass
         style.configure("Treeview", font=FONT, rowheight=24)
         style.configure("Treeview.Heading", font=FONT)
         style.configure("TButton", font=FONT, padding=(10, 5))
@@ -203,7 +204,7 @@ class App(tk.Tk):
             ("items", "内容数", 70, "center"),
         ):
             self.tree.heading(cid, text=text)
-            self.tree.column(cid, width=width, anchor=anchor)
+            self.tree.column(cid, width=width, anchor=anchor)  # type: ignore[call-overload]
         self.tree.pack(fill="both", expand=False, pady=(8, 0))
         self.tree.bind("<Double-1>", self._toggle_row)
 
@@ -233,7 +234,7 @@ class App(tk.Tk):
             ("state", "状态", 90, "center"),
         ):
             self.todo_tree.heading(cid, text=text)
-            self.todo_tree.column(cid, width=width, anchor=anchor)
+            self.todo_tree.column(cid, width=width, anchor=anchor)  # type: ignore[call-overload]
         self.todo_tree.pack(fill="both", expand=True, pady=(8, 0))
 
         note = ("写入方式：先把合并结果写到 todo.json.new 副本 → 关闭 DeskBox → 原子替换 → "
@@ -261,7 +262,7 @@ class App(tk.Tk):
             ("kind", "类型", 90, "center"),
         ):
             self.notice_tree.heading(cid, text=text)
-            self.notice_tree.column(cid, width=width, anchor=anchor)
+            self.notice_tree.column(cid, width=width, anchor=anchor)  # type: ignore[call-overload]
         self.notice_tree.pack(fill="both", expand=True, pady=(8, 0))
         self.notice_tree.bind("<Double-1>", lambda _e: self._open_notice())
         self._load_notice_cache()
@@ -282,7 +283,7 @@ class App(tk.Tk):
             ("total", "满分", 100, "center"),
         ):
             self.grade_tree.heading(cid, text=text)
-            self.grade_tree.column(cid, width=width, anchor=anchor)
+            self.grade_tree.column(cid, width=width, anchor=anchor)  # type: ignore[call-overload]
         self.grade_tree.pack(fill="both", expand=True, pady=(8, 0))
 
     def _build_settings_tab(self) -> None:
@@ -301,7 +302,7 @@ class App(tk.Tk):
         self.var_synctime = tk.StringVar(value=self.cfg["schedule"]["sync_time"])
         self.var_report = tk.BooleanVar(value=self.cfg["schedule"]["report_enabled"])
 
-        def row(label: str, var, y: int, browse: bool = False) -> None:
+        def row(label: str, var, y: int, browse: str = "") -> None:
             ttk.Label(tab, text=label).grid(row=y, column=0, sticky="w", pady=4)
             ttk.Entry(tab, textvariable=var, width=78).grid(row=y, column=1, sticky="we", pady=4)
             if browse:
@@ -393,13 +394,9 @@ class App(tk.Tk):
         self._set_status(f"已选 {len(selected)} 门课程")
 
     def _checked_courses(self) -> list[Course]:
-        out = []
         ids = {int(self.tree.item(i, "values")[1]) for i in self.tree.get_children()
                if self.tree.item(i, "values")[0] == "✔"}
-        for c in self.courses:
-            if c.id in ids:
-                out.append(c)
-        return out
+        return [c for c in self.courses if c.id in ids]
 
     def open_canvas(self) -> None:
         subprocess.Popen(["cmd", "/c", "start", "", "https://canvas.example.edu/"])
@@ -639,6 +636,15 @@ class App(tk.Tk):
         vars_map: dict = {}
         total_var = tk.StringVar()
 
+        # 先定义再使用：Checkbutton 的 command 在创建时立即求值，
+        # 若留成 `lambda: _update_total()` 就得靠「调用时才查名」才能成立，太隐晦
+        def _selected() -> list:
+            return [t for k, (v, t) in vars_map.items() if v.get()]
+
+        def _update_total() -> None:
+            total_var.set(f"合计约 {cleaner.fmt_size(sum(t.bytes for t in _selected()))}"
+                          f" · {sum(t.files for t in _selected())} 个文件")
+
         for t in targets:
             var = tk.BooleanVar(value=t.default)
             vars_map[t.key] = (var, t)
@@ -647,16 +653,9 @@ class App(tk.Tk):
             text = f"{'⚠ ' if t.destructive else ''}{t.label}   （{t.size_text}"
             text += f"，{t.files} 个文件）" if t.files else "）"
             ttk.Checkbutton(box, text=text, variable=var,
-                            command=lambda: _update_total()).pack(anchor="w")
+                            command=_update_total).pack(anchor="w")
             ttk.Label(box, text=t.detail, foreground="#666",
                       wraplength=540).pack(anchor="w", padx=22)
-
-        def _selected() -> list:
-            return [t for k, (v, t) in vars_map.items() if v.get()]
-
-        def _update_total() -> None:
-            total_var.set(f"合计约 {cleaner.fmt_size(sum(t.bytes for t in _selected()))}"
-                          f" · {sum(t.files for t in _selected())} 个文件")
 
         _update_total()
         ttk.Label(win, textvariable=total_var, foreground="#333").pack(

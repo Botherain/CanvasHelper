@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
 
 from .auth import AuthRequired, CanvasSession
 from .paths import get_logger
@@ -25,7 +25,7 @@ class Course:
     def short(self) -> str:
         """课程代码，例如 CS0001（剥离 202609 之类的学期前缀）。"""
         for src in (self.code, self.name):
-            m = re.search(r"CS\s*(\d{4,5})", src or "", re.I)
+            m = re.search(r"CS\s*(\d{4,5})", src or "", re.IGNORECASE)
             if m:
                 return "CS" + m.group(1)
         return (self.code or self.name or str(self.id))[:20].strip()
@@ -81,12 +81,14 @@ class CanvasAPI:
         if self.s._ctx is None:
             self.s.start(headless=True)
         ctx = self.s._ctx
+        if ctx is None:  # start() 成功后必不为 None；此处仅为给类型检查器收窄
+            raise RuntimeError("浏览器会话未能启动")
         resp = ctx.request.get(self.s.url(path), params=params, timeout=60_000, fail_on_status_code=False)
         if resp.status in (403, 429):
             # Canvas 限流会以 403 返回，先甄别再决定是否重试
             try:
                 body = (resp.text() or "").lower()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 body = ""
             if resp.status == 429 or "rate" in body or "too many" in body:
                 log.warning("Canvas 限流(HTTP %s)，5 秒后重试: %s", resp.status, path)
@@ -182,8 +184,8 @@ class CanvasAPI:
             )
             if not items and mod.get("items"):
                 items = mod["items"]
-            for it in items:
-                it = dict(it)
+            for raw in items:
+                it = dict(raw)
                 it["_module_name"] = name
                 result.append(it)
         return result
@@ -242,7 +244,7 @@ class CanvasAPI:
                 items = self.get_all(path, params=params)
             except AuthRequired:
                 raise
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.debug("公告接口失败 %s: %s", path, exc)
                 continue
             if items:
@@ -341,7 +343,7 @@ class CanvasAPI:
         folder_paths: dict[int, str] = {}
         try:
             folder_paths = self.folder_map(course_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("%s 文件夹读取失败: %s", course_id, exc)
 
         # 文件索引（可能 403 -> 空）
@@ -417,7 +419,7 @@ class CanvasAPI:
             assigns = self.assignments(course_id)
         except AuthRequired:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("%s 作业读取失败: %s", course_id, exc)
             assigns = []
 
@@ -449,7 +451,7 @@ class CanvasAPI:
                     items.append(made)
 
         # ---- 3) 文件索引里剩下的（没挂模块、也没被作业引用）----
-        for fid, f in file_index.items():
+        for fid in file_index:
             if fid in seen_files:
                 continue
             made = _make_file(fid)
@@ -464,7 +466,10 @@ class CanvasAPI:
         """下载文件，返回 (内容, 文件名, content-type)。"""
         if self.s._ctx is None:
             self.s.start(headless=True)
-        resp = self.s._ctx.request.get(self.s.url(url), timeout=180_000, fail_on_status_code=False)
+        ctx = self.s._ctx
+        if ctx is None:  # start() 成功后必不为 None；此处仅为给类型检查器收窄
+            raise RuntimeError("浏览器会话未能启动")
+        resp = ctx.request.get(self.s.url(url), timeout=180_000, fail_on_status_code=False)
         if resp.status >= 400:
             raise RuntimeError(f"下载失败 HTTP {resp.status}: {url}")
         headers = dict(resp.headers or {})
@@ -477,13 +482,13 @@ def _filename_from_headers(headers: dict) -> str | None:
     cd = headers.get("content-disposition", "")
     if not cd:
         return None
-    m = re.search(r"filename\*\s*=\s*UTF-8''([^;]+)", cd, re.I)
+    m = re.search(r"filename\*\s*=\s*UTF-8''([^;]+)", cd, re.IGNORECASE)
     if m:
         from urllib.parse import unquote
 
         return unquote(m.group(1)).strip()
-    m = re.search(r'filename\s*=\s*"([^"]+)"', cd, re.I) or re.search(
-        r"filename\s*=\s*([^;]+)", cd, re.I
+    m = re.search(r'filename\s*=\s*"([^"]+)"', cd, re.IGNORECASE) or re.search(
+        r"filename\s*=\s*([^;]+)", cd, re.IGNORECASE
     )
     if m:
         return m.group(1).strip().strip('"')

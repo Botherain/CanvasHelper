@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
+from contextlib import suppress
+from typing import TYPE_CHECKING
 
 from .paths import PROFILE_DIR, clear_auth_needed, get_logger
+
+if TYPE_CHECKING:
+    from playwright.sync_api import BrowserContext, Playwright
 
 CANVAS_HOME = "https://canvas.example.edu/"
 LOGIN_PROBE = "/api/v1/users/self/profile"
@@ -38,8 +42,8 @@ def _load_cookies() -> list[dict]:
         log.warning("读取 session.json 失败: %s", exc)
         return []
     out = []
-    for row in rows:
-        row = dict(row)
+    for raw in rows:
+        row = dict(raw)
         if not row.get("name"):
             continue
         exp = row.get("expires")
@@ -68,8 +72,8 @@ class CanvasSession:
     def __init__(self, channel: str = "msedge", timeout_ms: int = 60_000):
         self.channel = channel
         self.timeout_ms = timeout_ms
-        self._pw = None
-        self._ctx = None
+        self._pw: Playwright | None = None
+        self._ctx: BrowserContext | None = None
         self.profile: dict | None = None
 
     # ---------- 生命周期 ----------
@@ -84,12 +88,12 @@ class CanvasSession:
     def _launch(self, headless: bool):
         p = self._playwright()
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-        kwargs = dict(
-            user_data_dir=str(PROFILE_DIR),
-            headless=headless,
-            accept_downloads=True,
-            viewport={"width": 1360, "height": 900},
-        )
+        kwargs = {
+            "user_data_dir": str(PROFILE_DIR),
+            "headless": headless,
+            "accept_downloads": True,
+            "viewport": {"width": 1360, "height": 900},
+        }
         try:
             return p.chromium.launch_persistent_context(channel=self.channel, **kwargs)
         except Exception as exc:  # Edge 缺失等
@@ -123,19 +127,15 @@ class CanvasSession:
 
     def close(self) -> None:
         if self._ctx is not None:
-            try:
+            with suppress(Exception):
                 self._ctx.close()
-            except Exception:
-                pass
             self._ctx = None
         if self._pw is not None:
-            try:
+            with suppress(Exception):
                 self._pw.stop()
-            except Exception:
-                pass
             self._pw = None
 
-    def __enter__(self) -> "CanvasSession":
+    def __enter__(self) -> CanvasSession:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -153,7 +153,10 @@ class CanvasSession:
         """返回 (status_code, parsed_json_or_text)。带登录 cookie。"""
         if self._ctx is None:
             self.start(headless=True)
-        resp = self._ctx.request.get(
+        ctx = self._ctx
+        if ctx is None:  # start() 成功后必不为 None；此处仅为给类型检查器收窄
+            raise RuntimeError("浏览器会话未能启动")
+        resp = ctx.request.get(
             self.url(path),
             params=params,
             timeout=timeout or self.timeout_ms,
@@ -198,6 +201,8 @@ class CanvasSession:
         on_status("会话已过期，打开浏览器登录窗口…")
         self.close()
         self.start(headless=False)
+        if self._ctx is None:
+            raise RuntimeError("浏览器会话未能启动")
         page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
         try:
             page.goto(CANVAS_HOME, wait_until="domcontentloaded", timeout=60_000)

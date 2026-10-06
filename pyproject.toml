@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
 canvas-helper = "canvas_helper.__main__:main"
@@ -46,3 +46,63 @@ Issues = "https://github.com/Botherain/CanvasHelper/issues"
 
 [tool.setuptools]
 packages = ["canvas_helper"]
+
+# ---------------------------------------------------------------------------
+# 静态检查（python -m ruff check . ；CI 每次推送都跑）
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# 只选「能真抓出问题」的族，不做无意义的风格争论
+select = [
+    "E", "W",     # pycodestyle
+    "F",          # pyflakes：未用导入 / 未定义名字
+    "I",          # import 排序
+    "UP",         # pyupgrade（按 py311 现代化）
+    "B",          # bugbear：常见真 bug
+    "SIM",        # 可化简的写法
+    "C4", "PIE", "PERF",
+    "RUF",        # ruff 自家规则
+    "FURB",       # 现代化等价写法
+    "S",          # bandit：安全
+    "PLW",        # 子进程 / 并发类告警
+]
+ignore = [
+    # except Exception 是刻意的防御：单个附件、单个接口失败不应中断整轮同步，
+    # 上层已按「errors 列表 + 退出码」的约定收集并上报，这里不要求逐个捕获。
+    "BLE001",
+    "S101",       # assert（自检脚本里有意义）
+    "S603",       # subprocess 调用无法静态验证——命令与路径都来自自家配置
+    "S607",       # 同上（可执行文件路径）
+    "RUF001", "RUF002", "RUF003",   # 「含糊 Unicode」——本项目注释与用户文案全是中文，
+                                     # 全角标点是有意的，不接受改写成半角
+    "PLW0603",                       # global：logger 缓存与自检计数器就是为此而生
+    "RUF012",     # 可变类属性注解
+    "E501",       # 行长交给 line-length + 人工判断，不做强制换行（会破坏中文注释可读性）
+]
+
+# ---------------------------------------------------------------------------
+# 类型检查（python -m mypy ；CI 每次推送都跑，配置见 files）
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+files = ["canvas_helper", "tests"]
+show_error_codes = true
+# 无注解的函数体也照样检查：本项目多数函数已带注解，未带的那几个恰恰是最容易
+# 出类型错的地方（实测这一开就抓出 3 个真的赋值不兼容）
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_configs = true
+# 刻意**不开** warn_unused_ignores：gui.py 有 4 处 `# type: ignore[call-overload]`
+# 是在补 typeshed 对 Treeview.column 重载的缺口（anchor 从元组推断成 str，
+# 而重载要求 Literal）。mypy 升级后它们若变成「多余」，会把本来没错的代码判红；
+# 取 CI 稳定性，不取这点洁癖。
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+# 自检脚本大量用鸭子类型替身（_Stub / _DeadSession）冒充 CanvasSession，这正是
+# 「离线跑、不依赖真实 Playwright」的设计前提；给替身硬套类型层次只会造假。
+# tests 仍受 ruff 约束（E/F/I/UP/B/SIM/PERF… 全绿），功能由 129 项断言保证。
+ignore_errors = true
