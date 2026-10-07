@@ -252,9 +252,10 @@ python -m canvas_helper clean --login      # 连登录态一起清（之后需�
 ```
 CanvasHelper\
 ├─ canvas_helper\
+│  ├─ __init__.py    APP_NAME / __version__（与 pyproject 的 version 必须一致，自检会断言）
 │  ├─ paths.py       路径 / 配置 / 日志 / 状态（数据目录 + 自动发现 + 过期标记）
 │  ├─ auth.py        持久化浏览器 profile + 登录判定 + 过期标记清除
-│  ├─ canvas_api.py  /api/v1 分页封装（课程/模块/文件/作业/公告/成绩）
+│  ├─ canvas_api.py  /api/v1 分页封装（课程/模块/页面正文/文件/作业/公告/讨论/成绩）
 │  ├─ classify.py    分类与子目录推断
 │  ├─ filesync.py    下载计划（dry-run）与执行
 │  ├─ deskbox.py     待办合并 / 副本预写 / 关-换-启
@@ -262,14 +263,38 @@ CanvasHelper\
 │  ├─ cleaner.py     一键清理缓存（扫描 / 执行）
 │  ├─ scheduler.py   Windows 计划任务
 │  ├─ runner.py      流程编排（含登录过期的弹窗自愈）
-│  └─ gui.py         tkinter 界面
-├─ tests\smoke.py     离线自检的实现（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理 / 登录过期）
-├─ tests\conftest.py  pytest 夹具（副作用隔离、课程目录、待办草稿上下文）
-├─ tests\test_smoke.py  把自检按小节交给 pytest 执行
+│  ├─ gui.py         tkinter 界面
+│  └─ __main__.py    命令行入口（无参数开 GUI / sync / report / clean / preview）
+├─ tests\
+│  ├─ __init__.py        让用例以 tests.xxx 形式被发现（少了它 mypy 的 tests.* 规则不生效）
+│  ├─ smoke.py           离线自检的实现（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理 / 登录过期）
+│  ├─ conftest.py        pytest 夹具（副作用隔离、课程目录、待办草稿上下文）
+│  ├─ test_smoke.py      把自检按小节交给 pytest 执行（13 个用例）
+│  └─ test_canvas_api.py 文件发现退化路径的离线回归（7 个用例，不联网）
+├─ scripts\
+│  ├─ pyinstaller_entry.py  打包入口（__main__.py 是相对导入，不能当独立脚本分析）
+│  └─ capture_gui.ps1       截 README 用的窗口截图（支持源码版与打包版）
+├─ docs\
+│  ├─ screenshots\gui-main.png  主界面截图
+│  └─ RELEASING.md              发布流程 / 转公开 scrub 清单 / 打包双轨 / 代码签名方案
+├─ .github\
+│  ├─ workflows\ci.yml      lint（ruff + mypy）+ 离线自检 × Python 3.11~3.14
+│  └─ ISSUE_TEMPLATE\       Bug / 功能建议的 issue forms
+├─ pyproject.toml     元数据 + ruff + mypy + pytest 配置（唯一版本号来源）
+├─ CHANGELOG.md       变更记录
 ├─ config.example.json  配置模板（可写数据不在这里，见「数据目录」）
 ├─ LICENSE
 └─ 启动Canvas助手.bat   用 %~dp0，位置随意
 ```
+
+## 版本历史与发布
+
+- 变更记录见 [CHANGELOG.md](CHANGELOG.md)（[Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，语义化版本）。
+- 发布流程、转公开前需要 scrub 的位置、PyInstaller / PyPI 双轨打包，以及
+  **代码签名的方案与现状**（需要花钱的那部分，见文档里的说明）见
+  [docs/RELEASING.md](docs/RELEASING.md)。
+- 有问题请提 [Issue](https://github.com/Botherain/CanvasHelper/issues)，
+  模板里已列好需要一并提供的系统、版本、日志等信息。
 
 ## 许可与免责
 
