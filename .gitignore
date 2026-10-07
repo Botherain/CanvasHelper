@@ -15,3 +15,6 @@ build/
 dist/
 *.egg-info/
 .eggs/
+
+# PyInstaller 生成的构建文件（由 scripts/pyinstaller_entry.py + 命令行参数重建）
+*.spec
