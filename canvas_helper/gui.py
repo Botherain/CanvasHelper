@@ -37,6 +37,10 @@ class App(tk.Tk):
         # 身兼二职：同步跑完是 SyncResult，只跑截止收集时是 SimpleNamespace(drafts=...)，
         # 两者的取用方都只认 .drafts（多数还带 getattr 默认值），故此处不做强类型约束
         self.result: Any = None
+        # 通知只活在内存里：state.json 不再存通知正文，这里放的是最近一次
+        # 拉到的结果，由 _refresh_notice_tree 渲染。已读标记仍在 state 的
+        # notices.seen 里（只存 key，用于判定未读）。
+        self.notices: list[dict] = []
         self._on_done = None
         self._on_error = None
 
@@ -66,6 +70,10 @@ class App(tk.Tk):
             self.bg(job, on_done=lambda n: self.log(f"已补写 {n} 条排队待办"))
         if scheduler.status():
             self.log("计划任务：已注册每日同步/每周摘要")
+        # 通知不再落盘，所以打开时现拉一次；但登录态已知过期时跳过，
+        # 免得刚开窗口就弹出浏览器登录框（那种情况下顶部横幅已经在提示了）
+        if not auth:
+            self.do_load_notices()
 
     def _progress(self, msg: str) -> None:
         self.q.put(("progress", msg))
@@ -250,7 +258,7 @@ class App(tk.Tk):
         bar.pack(fill="x")
         ttk.Button(bar, text="刷新通知", command=self.do_load_notices).pack(side="left")
         ttk.Button(bar, text="打开选中链接", command=self._open_notice).pack(side="left", padx=6)
-        self.unread_var = tk.StringVar(value="")
+        self.unread_var = tk.StringVar(value="尚未拉取（点「刷新通知」）")
         ttk.Label(bar, textvariable=self.unread_var).pack(side="right")
 
         cols = ("time", "course", "title", "kind")
@@ -265,7 +273,7 @@ class App(tk.Tk):
             self.notice_tree.column(cid, width=width, anchor=anchor)  # type: ignore[call-overload]
         self.notice_tree.pack(fill="both", expand=True, pady=(8, 0))
         self.notice_tree.bind("<Double-1>", lambda _e: self._open_notice())
-        self._load_notice_cache()
+        self._refresh_notice_tree()
 
     def _build_grade_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=10)
@@ -514,7 +522,12 @@ class App(tk.Tk):
             self._fill_counts(res)
             self._fill_todo_tree(res.drafts, res)
             self._fill_grades(res)
-            self._load_notice_cache()
+            # 通知正文只在内存里：同步拉到了就刷新显示，没拉（本轮回调失败
+            # 或关掉了通知聚合）则保留窗口上已有的内容，不清空
+            got = getattr(res, "notices", None)
+            if got is not None:
+                self.notices = self._serialize_notices(got)
+                self._refresh_notice_tree()
 
         self.bg(job, on_done=done)
 
@@ -717,19 +730,31 @@ class App(tk.Tk):
 
         def done(payload):
             notices, unread = payload
+            self.notices = self._serialize_notices(notices)
             self.unread_var.set(f"共 {len(notices)} 条 · 未读 {unread} 条")
-            self._load_notice_cache()
+            self._refresh_notice_tree()
 
         self.bg(job, on_done=done)
 
-    def _load_notice_cache(self) -> None:
-        cache = load_state().get("notices_cache", [])
+    @staticmethod
+    def _serialize_notices(notices: list) -> list[dict]:
+        """把 Notice 转成渲染用的 dict —— 通知只留一份在内存，不写 state.json。"""
+        return [
+            {"posted_at": n.posted_at, "course": n.course, "title": n.title,
+             "url": n.url, "kind": n.kind}
+            for n in notices
+        ]
+
+    def _refresh_notice_tree(self) -> None:
         self.notice_tree.delete(*self.notice_tree.get_children())
-        for n in cache:
+        label = {"announcement": "公告", "conversation": "消息", "activity": "动态"}
+        for n in self.notices:
+            # 归一化成 str：dict.get 在 mypy 眼里是 Any|None，而表头文案的
+            # .get 要的是 str；顺带避免 kind 缺失/为 None 时把 None 塞进表格
+            kind = str(n.get("kind") or "")
             self.notice_tree.insert("", "end", values=(
                 n.get("posted_at", ""), n.get("course", ""), n.get("title", ""),
-                {"announcement": "公告", "conversation": "消息", "activity": "动态"}.get(
-                    n.get("kind"), n.get("kind", "")),
+                label.get(kind, kind),
             ))
 
     def _open_notice(self) -> None:
@@ -737,9 +762,8 @@ class App(tk.Tk):
         if not item:
             return
         idx = self.notice_tree.index(item)
-        cache = load_state().get("notices_cache", [])
-        if idx < len(cache) and cache[idx].get("url"):
-            subprocess.Popen(["cmd", "/c", "start", "", cache[idx]["url"]])
+        if idx < len(self.notices) and self.notices[idx].get("url"):
+            subprocess.Popen(["cmd", "/c", "start", "", self.notices[idx]["url"]])
 
     def _fill_grades(self, res) -> None:
         self.grade_tree.delete(*self.grade_tree.get_children())

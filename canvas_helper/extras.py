@@ -78,12 +78,18 @@ def collect_notices(
 
 
 def mark_notices_read(notices: list[Notice]) -> list[Notice]:
-    """返回未读（相对上次记录）的通知。"""
+    """返回未读（相对上次记录）的通知。
+
+    只在 state.json 里留**已读标记**（`notices.seen`，一串 key），
+    通知正文一律不落盘——否则每条公告都会从首次登录起一直攒下去。
+    早期版本把正文也存进了 `notices_cache`，这里顺手抹掉那份残留。
+    """
     state = load_state()
     seen = set(state.get("notices", {}).get("seen", []))
     unread = [n for n in notices if n.key not in seen]
     state.setdefault("notices", {})["seen"] = sorted({n.key for n in notices})
     state["notices"]["at"] = now_hk().isoformat(timespec="seconds")
+    state.pop("notices_cache", None)
     save_state(state)
     return unread
 

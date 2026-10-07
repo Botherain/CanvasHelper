@@ -1,4 +1,4 @@
-"""一键清理缓存：下载状态、通知缓存、排队待办、导出日历、日志、浏览器缓存。
+"""一键清理缓存：下载状态、已读标记、排队待办、导出日历、日志、浏览器缓存。
 
 原则：
 - 默认只清「可再生」的东西，**不动登录态**（session.json + 浏览器 Cookie）。
@@ -123,18 +123,22 @@ def scan() -> list[Target]:
     """列出可清理项与各自体积。"""
     out: list[Target] = []
 
-    # 1) 下载状态 / 通知缓存
+    # 1) 下载状态 / 已读标记
     try:
         st = load_state()
         n_files = len(st.get("files") or {})
-        n_notices = len(st.get("notices_cache") or [])
         seen = len((st.get("notices") or {}).get("seen") or [])
+        # 旧版本还会存一份通知正文，新版本已经不写了；这里照旧报出来，
+        # 勾选清理时一并抹掉
+        legacy = len(st.get("notices_cache") or [])
         size = STATE_PATH.stat().st_size if STATE_PATH.exists() else 0
+        tail = f"、{legacy} 条旧版通知缓存" if legacy else ""
         out.append(Target(
             "state",
-            "下载状态 / 通知缓存",
-            f"state.json：{n_files} 条下载记录、{n_notices} 条通知缓存、{seen} 个已读标记。"
-            "清除后下次同步会重新核对文件（有本地内容识别兜底，不会重复下载）。",
+            "下载状态 / 已读标记",
+            f"state.json：{n_files} 条下载记录、{seen} 个已读标记{tail}。"
+            "清除后下次同步会重新核对文件（有本地内容识别兜底，不会重复下载），"
+            "已读通知会被重新标为未读。",
             3, size, default=True,
         ))
     except Exception as exc:
@@ -281,7 +285,10 @@ def run(keys: set[str], progress: Callable[[str], None] = lambda m: None) -> dic
         for k in ("files", "notices", "notices_cache"):
             st.pop(k, None)
         save_state(st)
-        report["messages"].append("已清空下载状态与通知缓存，下次同步会重新核对文件")
+        report["messages"].append(
+            "已清空下载状态与已读标记，下次同步会重新核对文件，"
+            "通知会被重新标为未读"
+        )
         report["cleaned"].append("state")
         progress("已清空下载状态")
 

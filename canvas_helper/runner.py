@@ -41,6 +41,9 @@ class SyncResult:
     todo_mode: str = "none"
     todo_stats: dict = field(default_factory=dict)
     unread: list = field(default_factory=list)
+    # 本次拉到的全量通知，None 表示本轮回调没拉（失败或关闭了通知聚合）。
+    # 通知正文不落盘，全靠这个字段在内存里传给界面渲染。
+    notices: list | None = None
     grades: dict = field(default_factory=dict)
     grade_files: list[str] = field(default_factory=list)
     ics_path: str = ""
@@ -314,13 +317,7 @@ def run_sync(
             try:
                 notices = extras.collect_notices(api, courses, progress)
                 res.unread = extras.mark_notices_read(notices)
-                state = load_state()
-                state["notices_cache"] = [
-                    {"course": n.course, "title": n.title, "body": n.body,
-                     "posted_at": n.posted_at, "url": n.url, "kind": n.kind}
-                    for n in notices[:300]
-                ]
-                save_state(state)
+                res.notices = notices
             except Exception as exc:
                 res.errors.append(f"通知读取失败: {exc}")
 
@@ -369,13 +366,6 @@ def collect_notice_list(cfg: dict | None = None, progress: Progress = _nop) -> t
         courses, _f = resolve_courses(cfg, api)
         notices = extras.collect_notices(api, courses, progress)
         unread = extras.mark_notices_read(notices)
-        state = load_state()
-        state["notices_cache"] = [
-            {"course": n.course, "title": n.title, "body": n.body,
-             "posted_at": n.posted_at, "url": n.url, "kind": n.kind}
-            for n in notices[:300]
-        ]
-        save_state(state)
         return notices, len(unread)
     finally:
         session.close()
