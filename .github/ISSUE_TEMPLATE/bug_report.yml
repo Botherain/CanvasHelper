@@ -1,0 +1,78 @@
+name: 报告问题
+description: 某个功能不工作、同步结果不对、界面报错……
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        谢谢反馈。**提交前请先删掉日志里的学号 / 邮箱 / 课程号等个人信息**，
+        `sync.log` 默认只记录文件名与接口路径，但课程名可能含你的选课信息。
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 在「设置」页或标题栏能看到，例如 `v1.0.0`
+      placeholder: v1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式
+      options:
+        - PyInstaller 单目录版
+        - `python -m pip install canvas-helper` 后运行
+        - 源码直接运行
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 期望是什么，实际是什么
+      description: 「同步完成后 CS0003 应该有讲义，但文件夹是空的」这种描述最有用
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 一步步怎么操作才会出现
+      placeholder: |
+        1. 打开 GUI
+        2. 点「登录 / 刷新课程」
+        3. ……
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: `%LOCALAPPDATA%\CanvasHelper\sync.log` 的末尾几十行，或界面上的错误提示
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 已经删掉日志里的学号 / 邮箱 / 课程编号等个人信息
+        - label: 已经搜过已有 issue，不是重复报告
+        - label: 确认是个人学习用途，没有在做批量抓取

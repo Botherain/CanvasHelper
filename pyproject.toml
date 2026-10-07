@@ -88,7 +88,7 @@ ignore = [
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.11"
-files = ["canvas_helper", "tests"]
+files = ["canvas_helper", "tests", "scripts"]
 show_error_codes = true
 # 无注解的函数体也照样检查：本项目多数函数已带注解，未带的那几个恰恰是最容易
 # 出类型错的地方（实测这一开就抓出 3 个真的赋值不兼容）

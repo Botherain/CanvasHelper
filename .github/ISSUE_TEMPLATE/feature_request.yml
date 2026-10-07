@@ -1,0 +1,46 @@
+name: 功能建议
+description: 想让它多做一件事，或者换个做法
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        项目定位是**个人学习辅助**，因此以下请求大概率不会做：
+        批量抓取整门课、绕过权限限制、把课程内容再分发给他人。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么问题
+      description: 描述场景而不是方案，「我总是忘记看公告」比「加个邮件提醒」更有信息量
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你的想法（可选）
+      placeholder: 比如：能不能在周报里把本周截止的作业排在最前面
+    validations:
+      required: false
+
+  - type: dropdown
+    id: courses
+    attributes:
+      label: 这个需求跟哪些课程的挂载方式有关
+      description: 见 README 的「文件发现」一节，不同课在 Canvas 上的存放方式差很远
+      options:
+        - 无关（通用需求）
+        - 依赖课程级「文件」页（索引可读）
+        - 依赖模块里的页面（索引 403）
+        - 不清楚
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他想说的
+    validations:
+      required: false

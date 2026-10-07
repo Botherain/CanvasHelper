@@ -40,7 +40,7 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Ruff
-        run: python -m ruff check canvas_helper tests
+        run: python -m ruff check canvas_helper tests scripts
 
       - name: Mypy
         run: python -m mypy

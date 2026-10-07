@@ -9,6 +9,12 @@
 > 本工具面向**个人学习用途**，请勿用于批量抓取或再分发课程内容。
 > 与 Instructure / Canvas 及你所在院校无任何关联。见文末 [许可与免责](#许可与免责)。
 
+<p align="center">
+  <img src="docs/screenshots/gui-main.png" alt="主界面：通知 / 公告聚合" width="860">
+  <br>
+  <sub>主界面 —— 通知聚合页。顶部五个标签：课程同步、待办（DeskBox）、通知 / 公告、成绩、设置。</sub>
+</p>
+
 ## 功能
 
 | 模块 | 说明 |
@@ -280,7 +286,7 @@ CanvasHelper\
 ```powershell
 python tests\smoke.py      # 脚本入口：逐条 PASS/FAIL，任一失败退出码 1
 python -m pytest           # 同一套断言，按小节拆成 13 个用例
-python -m ruff check canvas_helper tests
+python -m ruff check canvas_helper tests scripts
 python -m mypy
 ```
 

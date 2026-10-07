@@ -3,11 +3,19 @@
 # Deliberately pure ASCII: PowerShell 5.1 reads a .ps1 without BOM as ANSI (cp936
 # here), so any non-ASCII byte in this file could corrupt the syntax.
 #
-# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File capture_gui.ps1 <out.png>
+# Usage:
+#   powershell -NoProfile -ExecutionPolicy Bypass -File capture_gui.ps1 <out.png>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File capture_gui.ps1 <out.png> -ProcessName CanvasHelper.exe
+#
+# -ProcessName defaults to python.exe (source build, located by its command
+# line). Pass the packaged exe name to capture the PyInstaller build instead;
+# there is no command line to match on, so the window title is used.
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$OutPath
+    [string]$OutPath,
+
+    [string]$ProcessName = 'python.exe'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,9 +61,23 @@ public class DpiAware {
 } catch { }
 
 # --- locate the GUI process -------------------------------------------------
-$target = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
-    Where-Object { $_.CommandLine -like '*canvas_helper*gui*' -or $_.CommandLine -like '*canvas_helper gui*' } |
-    Select-Object -First 1
+$procs = Get-CimInstance Win32_Process -Filter ("Name = '{0}'" -f $ProcessName)
+
+if ($ProcessName -eq 'python.exe') {
+    # Source build: identify it by how it was launched.
+    $target = $procs |
+        Where-Object { $_.CommandLine -like '*canvas_helper*gui*' -or $_.CommandLine -like '*canvas_helper gui*' } |
+        Select-Object -First 1
+} else {
+    # Packaged build: there is no useful command line, so identify it by the
+    # main window title instead.
+    $target = $procs |
+        Where-Object {
+            $proc = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+            $proc -and $proc.MainWindowTitle -like 'CanvasHelper*'
+        } |
+        Select-Object -First 1
+}
 
 if (-not $target) {
     Write-Output 'NO_PROCESS'
