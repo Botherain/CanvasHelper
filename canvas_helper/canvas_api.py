@@ -6,6 +6,7 @@ import re
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from urllib.parse import quote
 
 from .auth import AuthRequired, CanvasSession
 from .paths import get_logger
@@ -219,6 +220,55 @@ class CanvasAPI:
         self._meta_cache[file_id] = meta
         return meta
 
+    def page_body(self, course_id: int, page_url: str, html_url: str = "") -> str:
+        """页面正文（HTML 片段）。
+
+        这个租户把 ``/courses/:id/pages`` 的**列表**接口关掉了（404），模块条目的
+        ``content_details`` 也一律是空的——实测 CS0003 的 14 个 Page 一个 ``body``
+        键都没有。但只要拿到 ``page_url``（模块条目本身就带着），show 接口照常 200；
+        show 也失败时退回抓 ``html_url`` 的源码。
+
+        这是 CS0003 / CS0005 的文件主干：课程级 ``/files`` 403、46 个文件夹逐个列也
+        403、模块里没有一条 File 型条目——页面正文是唯一还能挖出文件链接的地方
+        （实测补回 38 / 33 个，相对原有 21 / 9 是 +181% / +367%）。
+        """
+        if not page_url:
+            return ""
+        if not hasattr(self, "_page_cache"):
+            self._page_cache: dict[tuple[int, str], str] = {}
+        key = (course_id, page_url)
+        if key in self._page_cache:
+            return self._page_cache[key]
+
+        body = ""
+        data = self.get(f"/api/v1/courses/{course_id}/pages/{quote(page_url, safe='')}")
+        if isinstance(data, dict):
+            body = data.get("body") or ""
+        if not body and html_url:
+            body = self._raw_html(html_url)
+        self._page_cache[key] = body
+        return body
+
+    def _raw_html(self, url: str) -> str:
+        """抓页面源码（页面 show 接口不可用时的退路）。"""
+        if self.s._ctx is None:
+            self.s.start(headless=True)
+        ctx = self.s._ctx
+        if ctx is None:
+            return ""
+        resp = ctx.request.get(url, timeout=60_000, fail_on_status_code=False)
+        if resp.status == 401:
+            # 掉线必须向上抛，交给登录过期契约处理，不能在这里吞掉
+            raise AuthRequired(f"{url} -> HTTP {resp.status}")
+        if resp.status != 200:
+            log.warning("%s -> HTTP %s", url, resp.status)
+            return ""
+        try:
+            return resp.text()
+        except Exception as exc:
+            log.warning("页面源码读取失败 %s: %s", url, exc)
+            return ""
+
     def assignments(self, course_id: int) -> list[dict]:
         return self.get_all(
             f"/api/v1/courses/{course_id}/assignments",
@@ -329,11 +379,18 @@ class CanvasAPI:
     def collect_items(self, course_id: int) -> tuple[list[Item], list[dict]]:
         """收集一门课的全部内容。
 
-        实测这几门课的 Canvas 用法差异很大：
-        - CS0001/CS0002/CS0004/CS0006：没有模块，内容全在**文件夹 + 文件**里；
-        - CS0003/CS0005：有模块（页面/作业），但 `/files` 索引对学生 403，
-          只能靠 `/files/{id}` 单文件查询 + 描述/页面里的链接。
-        因此三条来源都要采，失败互相降级。
+        实测这几门课的 Canvas 用法差异很大，任何单一接口都会漏：
+        - CS0001/CS0002/CS0004/CS0006：没有模块，内容全在**文件夹 + 文件**里，
+          课程级 ``/files`` 索引可读；
+        - CS0003/CS0005：课程级 ``/files`` 索引 403，**逐文件夹列文件也 403**，
+          模块里一条 File 型条目都没有，课件全挂在模块内的 **Page 正文**里；
+          只能靠 ``page_url`` 调页面 show 接口 + 单文件 ``/files/{id}`` 查询。
+
+        因此五条来源都要采，失败互相降级：
+          1) 模块条目（含 Page 正文，见 page_body）
+          2) 作业描述
+          3) 公告 / 讨论正文
+          4) 课程级文件索引（可能 403 -> 空）
         """
         items: list[Item] = []
         seen_files: set[int] = set()
@@ -407,8 +464,14 @@ class CanvasAPI:
             if it.title:
                 seen_keys.add(f"{it.kind}:{it.title}")
             items.append(it)
-            # 页面正文里引用的文件
+            # 条目正文里引用的文件。模块条目的 content_details.body 在这个租户
+            # 基本是空的（CS0003 实测 14/14 个 Page 连 body 键都没有），所以
+            # Page 型条目必须改用 page_url 去调页面 show 接口——这是这类课程
+            # 唯一的文件来源。
             body = (raw.get("content_details") or {}).get("body") or ""
+            if not body and it.kind == "Page":
+                body = self.page_body(course_id, raw.get("page_url") or "",
+                                      raw.get("html_url") or "")
             for fid in self._file_ids_from(body):
                 made = _make_file(fid, mod_name)
                 if made is not None:
@@ -450,7 +513,25 @@ class CanvasAPI:
                 if made is not None:
                     items.append(made)
 
-        # ---- 3) 文件索引里剩下的（没挂模块、也没被作业引用）----
+        # ---- 3) 公告 / 讨论正文（老师常在这里直接甩附件链接）----
+        try:
+            topics = self.get_all(
+                f"/api/v1/courses/{course_id}/discussion_topics",
+                params={"per_page": 100},
+            )
+        except AuthRequired:
+            raise
+        except Exception as exc:
+            log.warning("%s 讨论区读取失败: %s", course_id, exc)
+            topics = []
+
+        for t in topics:
+            for fid in self._file_ids_from(t.get("message") or ""):
+                made = _make_file(fid)
+                if made is not None:
+                    items.append(made)
+
+        # ---- 4) 文件索引里剩下的（没挂模块、也没被作业/页面/讨论引用）----
         for fid in file_index:
             if fid in seen_files:
                 continue
