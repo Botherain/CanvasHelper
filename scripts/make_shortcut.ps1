@@ -12,8 +12,8 @@
 #
 # Deliberately pure ASCII: PowerShell 5.1 reads a .ps1 without BOM as ANSI
 # (cp936 here), so any non-ASCII byte in this file could corrupt the syntax.
-# The launcher .bat has a Chinese name, so it is located by wildcard and only
-# used for the shortcut's display name - it is never spelled out here.
+# The shortcut's display name is the fixed ASCII label "CanvasHelper", so no
+# Chinese file name ever has to be spelled out in this file.
 #
 # Usage:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File make_shortcut.ps1
@@ -55,14 +55,9 @@ if (-not (Test-Path $Icon)) {
     exit 5
 }
 
-# Display name comes from the launcher .bat so the shortcut keeps its Chinese
-# label; the .bat itself is not the target any more.
-$bats = @(Get-ChildItem -Path $root -Filter '*Canvas*.bat' -File -ErrorAction SilentlyContinue)
-if ($bats.Count -ge 1) {
-    $name = [System.IO.Path]::GetFileNameWithoutExtension($bats[0].Name)
-} else {
-    $name = 'CanvasHelper'
-}
+# Fixed display name (ASCII); the .bat is not the target any more, so its
+# Chinese name has nothing to do with the shortcut.
+$name = 'CanvasHelper'
 
 if (-not $LnkPath) {
     $desktop = [Environment]::GetFolderPath('Desktop')

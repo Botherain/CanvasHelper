@@ -45,9 +45,9 @@ canvas-helper            # 安装后的命令行入口
 python -m canvas_helper
 ```
 
-**桌面快捷方式**（带上图那个图标；直接以 `pythonw` 启动 GUI，**全程没有控制台**，
-点开即用；`.bat` 本身无法承载图标，且双击时 Windows 必先给它一个控制台，所以快捷
-方式不走 `.bat`）：
+**桌面快捷方式**（显示名 `CanvasHelper`，带上图那个图标；直接以 `pythonw` 启动
+GUI，**全程没有控制台**，点开即用；`.bat` 本身无法承载图标，且双击时 Windows 必先
+给它一个控制台，所以快捷方式不走 `.bat`）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make_shortcut.ps1
@@ -284,11 +284,11 @@ CanvasHelper\
 ├─ scripts\
 │  ├─ pyinstaller_entry.py  打包入口（__main__.py 是相对导入，不能当独立脚本分析）
 │  ├─ headless_entry.py     计划任务入口（__file__ 定位源码，配 pythonw 免黑框）
-│  ├─ make_icon.py          源图 → 裁边框 → 多尺寸 ico（小档 BMP + 256 PNG，--verify 体检）
+│  ├─ make_icon.py          源图 → 裁边框 → 去外圈留圆角（四角透明）→ 多尺寸 ico（--verify 体检）
 │  ├─ make_shortcut.ps1     生成桌面快捷方式（直启 pythonw 免控制台，挂 ico；.lnk 不入库）
 │  └─ capture_gui.ps1       截 README 用的窗口截图（源码版 / 打包版，兼容 pythonw）
 ├─ docs\
-│  ├─ icons\canvashelper.ico    应用图标（16~128 BMP + 256 PNG 七档）
+│  ├─ icons\canvashelper.ico    应用图标（圆角、四角透明；16~128 BMP + 256 PNG 七档）
 │  ├─ icons\canvashelper.png    图标预览（README 顶部展示）
 │  ├─ screenshots\gui-main.png  主界面截图
 │  └─ RELEASING.md              发布流程 / 转公开 scrub 清单 / 打包双轨 / 代码签名方案

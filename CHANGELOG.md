@@ -15,9 +15,15 @@
   一片噪点；256 走 PNG 是为了省体积（BMP 那一档要 260 多 KB，而 shell 从 Vista
   起本来就优先取 PNG）。Pillow 的 `bitmap_format` 只是「整份 save」的开关、不支持
   逐帧，所以先各存一份再按帧拼装。
-- `scripts/make_icon.py`：裁掉源图四周边框 → 取中心正方形 → 归一到 256px → 写出
-  多尺寸 ico；`--verify` 可离线体检，解析 ico 目录逐档列出尺寸与编码方式。
-- `scripts/make_shortcut.ps1`：生成桌面快捷方式并挂上该图标。目标是
+- `scripts/make_icon.py`：裁掉源图四周边框 → 取中心正方形 → **去外圈、留圆角**
+  → 归一到 256px → 写出多尺寸 ico；`--verify` 可离线体检，解析 ico 目录逐档列出
+  尺寸与编码方式。
+  源图画的是一张带投影的圆角卡片、四角还剩一圈底色：脚本按「与底色的偏差」量出
+  卡片外接矩形裁紧（外圈彻底截掉），再用卡片自身的圆角半径画一个 4 倍超采样的
+  抗锯齿遮罩当 alpha——圆角保住、四角透明，于是图标压在浅桌面不发灰、压在深
+  桌面不发黑。卡片量不出来时退回整幅原样，不会裁成空白。
+- `scripts/make_shortcut.ps1`：生成桌面快捷方式并挂上该图标，显示名固定为
+  `CanvasHelper`。目标是
   `pythonw.exe -X utf8 -m canvas_helper gui`——`.bat` 本身无法承载图标，而且双击
   `.bat` 时 Windows 必先给 cmd 一个控制台（实测约 0.2 秒黑框，`.bat` 内部消不
   掉），直启 `pythonw` 则一次窗口都不开。`.lnk` 含本机绝对路径，仓库只收生成

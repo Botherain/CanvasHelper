@@ -13,7 +13,11 @@
    35%，这样即使整图底色与边框同色，也不会被裁成空白。
 2. **取中心画面** —— 裁完边框的内接矩形再取中心正方形（宽高取小者、居中），
    因此无论原图是横的还是竖的，图标里留下的都是画面正中那块。
-3. **多尺寸** —— 归一到 256px 后写出 16/24/32/48/64/128/256 七个尺寸，Windows
+3. **去外圈、留圆角** —— 源图画的是一张带投影的圆角卡片，四角还剩一圈底色。
+   先按「与底色的偏差」量出卡片外接矩形并裁紧（把外圈彻底截掉），再用卡片
+   自身的圆角半径画一个 4 倍超采样的抗锯齿遮罩当 alpha：圆角保住，圆角之外
+   全透明——四角既不是底色也不是灰边，深浅桌面都干净。
+4. **多尺寸** —— 归一到 256px 后写出 16/24/32/48/64/128/256 七个尺寸，Windows
    按显示比例挑最接近的一档，避免小图标发虚、大图标被插值糊掉。编码上 256 用
    PNG、其余用 BMP（Pillow 只认「整份 save」的开关，所以分两次存再按帧拼），
    这样 shell 能拿到压缩帧、GDI / .NET 又不会把 PNG 帧画成噪点。
@@ -29,7 +33,7 @@ import sys
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SRC = Path(r"%USERPROFILE%\Downloads\CanvasHelper.jpg")
@@ -48,6 +52,10 @@ SAMPLES = 9
 #   BMP —— GDI / .NET 的 Icon.ToBitmap 只认这个，收到 PNG 帧会画成一片噪点；
 #   PNG —— 256 档用 BMP 要 260 多 KB，而 shell 从 Vista 起本来就优先取 PNG。
 PNG_FROM = 256
+# 「卡片」判定：与底色（四角均值）的偏差超过这个值就算卡片（含投影）。
+CARD_TOL = 10
+# 圆角遮罩的超采样倍数：先画 4 倍大的再缩回来，边缘才是抗锯齿的。
+MASK_SS = 4
 
 
 def _sample(px: Image.Image, xy: tuple[int, int]) -> tuple[int, int, int]:
@@ -129,6 +137,75 @@ def center_square(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
     return (x0, y0, x0 + side, y0 + side)
 
 
+def _bg_color(px: Image.Image) -> tuple[int, int, int]:
+    """四角 5x5 patch 的均值 = 卡片之外那圈底色。"""
+    w, h = px.size
+    pts = [(0, 0), (w - 5, 0), (0, h - 5), (w - 5, h - 5)]
+    acc = [0, 0, 0]
+    n = 0
+    for x, y in pts:
+        for i in range(x, x + 5):
+            for j in range(y, y + 5):
+                p = _sample(px, (i, j))
+                acc[0] += p[0]
+                acc[1] += p[1]
+                acc[2] += p[2]
+                n += 1
+    return (acc[0] // n, acc[1] // n, acc[2] // n)
+
+
+def _content_mask(px: Image.Image) -> Image.Image:
+    """卡片（含投影）的二值遮罩：与底色的偏差 > CARD_TOL 的像素为 255。"""
+    diff = ImageChops.difference(px, Image.new("RGB", px.size, _bg_color(px)))
+    return diff.convert("L").point(lambda v: 255 if v > CARD_TOL else 0)
+
+
+def _corner_radius(mask: Image.Image, box: tuple[int, int, int, int]) -> int:
+    """圆角半径：圆角矩形的顶行要到 ``x = left + r`` 才开始有卡片。
+
+    同时夹在四分之一边长以内，防止误把整幅都判成底色时得到一个离谱的值。
+    """
+    left, top, right, _bottom = box
+    limit = max(0, (right - left) // 4)
+    for x in range(left, right):
+        if mask.getpixel((x, top)):
+            return min(max(0, x - left), limit)
+    return 0
+
+
+def _rounded_alpha(size: tuple[int, int], radius: int) -> Image.Image:
+    """圆角矩形抗锯齿遮罩：圆角内 255、圆角外 0。"""
+    w, h = size
+    big = Image.new("L", (w * MASK_SS, h * MASK_SS), 0)
+    ImageDraw.Draw(big).rounded_rectangle(
+        [0, 0, w * MASK_SS - 1, h * MASK_SS - 1],
+        radius=radius * MASK_SS,
+        fill=255,
+    )
+    return big.resize((w, h), Image.Resampling.LANCZOS)
+
+
+def trim_to_card(px: Image.Image) -> tuple[Image.Image, int]:
+    """裁掉卡片外那圈底色，再量圆角半径。
+
+    返回 ``(带透明圆角的 RGBA 图, 圆角半径)``；半径单独返回只是为了能在报告里
+    打出来核对。
+    """
+    box = _content_mask(px).getbbox()
+    if box is None:
+        # 整幅都跟底色一样：没有卡片可裁，原样留着（至少不会裁成空白）。
+        out = px.convert("RGBA")
+        out.putalpha(_rounded_alpha(px.size, 0))
+        return (out, 0)
+    cropped = px.crop(center_square(box))
+    mask = _content_mask(cropped)
+    mbox = mask.getbbox()
+    radius = _corner_radius(mask, mbox) if mbox is not None else 0
+    out = cropped.convert("RGBA")
+    out.putalpha(_rounded_alpha(cropped.size, radius))
+    return (out, radius)
+
+
 def _read_ico(blob: bytes) -> list[tuple[tuple[int, int], bytes, bytes]]:
     """拆开一份 ico，返回 ``[(尺寸, 目录项前 8 字节, 图像数据), ...]``。
 
@@ -184,7 +261,8 @@ def build(src: Path, dst: Path) -> str:
         raw_w, raw_h = im.size
         box = trim_border(im)
         sq = center_square(box)
-        base = im.convert("RGB").crop(sq)
+        base, radius = trim_to_card(im.convert("RGB").crop(sq))
+        card_wh = base.size
 
     # 先归一到 256：最大档 1:1 不丢细节，其余档由 ico 编码器统一缩小，
     # 顺带保证「源图比 256 小」时 256 那一档也照样写得进去。
@@ -204,6 +282,7 @@ def build(src: Path, dst: Path) -> str:
         f"源图    : {src}  {raw_w}x{raw_h}",
         f"裁边框  : {trimmed}",
         f"中心方块: {sq[2] - sq[0]}x{sq[3] - sq[1]}",
+        f"卡片    : {card_wh[0]}x{card_wh[1]}  圆角半径 {radius}  四角透明",
         f"输出    : {dst}  ({dst.stat().st_size} B)",
         f"预览    : {PREVIEW_PATH}  ({PREVIEW_PATH.stat().st_size} B)",
     ]
