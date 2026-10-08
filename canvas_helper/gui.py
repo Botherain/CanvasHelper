@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import os
 import queue
-import subprocess
 import threading
 import tkinter as tk
 from contextlib import suppress
@@ -407,12 +407,14 @@ class App(tk.Tk):
         return [c for c in self.courses if c.id in ids]
 
     def open_canvas(self) -> None:
-        subprocess.Popen(["cmd", "/c", "start", "", "https://canvas.example.edu/"])
+        # ShellExecute 直接开链接。原来是 `cmd /c start`，而 GUI 没有控制台，
+        # cmd 就会临时新建一个可见控制台——点一下闪一个黑框。
+        os.startfile("https://canvas.example.edu/")
 
     def open_project(self) -> None:
         from .paths import DATA_DIR
 
-        subprocess.Popen(["explorer", str(DATA_DIR)])
+        os.startfile(DATA_DIR)
 
     def _refresh_deskbox_state(self) -> None:
         running = deskbox.is_running()
@@ -722,7 +724,7 @@ class App(tk.Tk):
         path = export_ics(drafts)
         self.log(f"已导出 {path}")
         if messagebox.askyesno(APP_NAME, f"已导出到：\n{path}\n\n是否现在打开？"):
-            subprocess.Popen(["cmd", "/c", "start", "", str(path)])
+            os.startfile(path)
 
     def do_load_notices(self) -> None:
         def job():
@@ -763,7 +765,7 @@ class App(tk.Tk):
             return
         idx = self.notice_tree.index(item)
         if idx < len(self.notices) and self.notices[idx].get("url"):
-            subprocess.Popen(["cmd", "/c", "start", "", self.notices[idx]["url"]])
+            os.startfile(self.notices[idx]["url"])
 
     def _fill_grades(self, res) -> None:
         self.grade_tree.delete(*self.grade_tree.get_children())

@@ -459,12 +459,18 @@ def prepare(doc_path: Path, drafts: list[TodoDraft], cfg: dict) -> tuple[Path, l
 
 # ---------- DeskBox 进程 ----------
 
+# CREATE_NO_WINDOW：GUI 跑在无控制台的 pythonw 里，裸调 tasklist/taskkill 会让
+# Windows 给每个子进程新开一个可见控制台，子进程一结束窗口立刻销毁——这就是
+# 用户看到的「黑框弹出又自动消失」（_refresh_deskbox_state 每 4 秒轮询一次）。
+CREATE_NO_WINDOW = 0x08000000
+
+
 def _deskbox_pids(name: str = "DeskBox") -> list[int]:
     try:
         out = subprocess.run(
             ["tasklist", "/FI", f"IMAGENAME eq {name}.exe", "/FO", "CSV", "/NH"],
             capture_output=True, text=True, timeout=15, check=False,
-            encoding="locale", errors="replace",
+            encoding="locale", errors="replace", creationflags=CREATE_NO_WINDOW,
         ).stdout
     except Exception as exc:
         log.warning("tasklist 失败: %s", exc)
@@ -489,7 +495,7 @@ def stop(timeout_s: float = 2.0) -> bool:
         return True
     for pid in pids:
         subprocess.run(["taskkill", "/PID", str(pid)], capture_output=True, timeout=15,
-                       check=False)
+                       check=False, creationflags=CREATE_NO_WINDOW)
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if not _deskbox_pids():
@@ -497,7 +503,7 @@ def stop(timeout_s: float = 2.0) -> bool:
         time.sleep(0.15)
     for pid in _deskbox_pids():
         subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True,
-                       timeout=15, check=False)
+                       timeout=15, check=False, creationflags=CREATE_NO_WINDOW)
     time.sleep(0.2)
     return not _deskbox_pids()
 
@@ -506,7 +512,7 @@ def start(exe: Path) -> None:
     if not exe.exists():
         log.warning("DeskBox 可执行文件不存在: %s", exe)
         return
-    subprocess.Popen([str(exe)], cwd=str(exe.parent))
+    subprocess.Popen([str(exe)], cwd=str(exe.parent), creationflags=CREATE_NO_WINDOW)
     log.info("已启动 DeskBox: %s", exe)
 
 

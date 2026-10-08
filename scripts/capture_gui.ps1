@@ -7,9 +7,11 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File capture_gui.ps1 <out.png>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File capture_gui.ps1 <out.png> -ProcessName CanvasHelper.exe
 #
-# -ProcessName defaults to python.exe (source build, located by its command
-# line). Pass the packaged exe name to capture the PyInstaller build instead;
-# there is no command line to match on, so the window title is used.
+# -ProcessName only selects the packaged build. A source build is located by its
+# command line regardless of which interpreter launched it (python.exe or
+# pythonw.exe, the latter being what the .bat now uses), so the default works for
+# both. There is no command line to match on for the packaged exe, so its window
+# title is used instead -- pass its name here to capture it.
 
 param(
     [Parameter(Mandatory = $true)]
@@ -61,17 +63,16 @@ public class DpiAware {
 } catch { }
 
 # --- locate the GUI process -------------------------------------------------
-$procs = Get-CimInstance Win32_Process -Filter ("Name = '{0}'" -f $ProcessName)
-
-if ($ProcessName -eq 'python.exe') {
-    # Source build: identify it by how it was launched.
-    $target = $procs |
+if ($ProcessName -eq 'python.exe' -or $ProcessName -eq 'pythonw.exe') {
+    # Source build: identify it by how it was launched. Any python* counts --
+    # the window may belong to python.exe (console) or pythonw.exe (no console).
+    $target = Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" |
         Where-Object { $_.CommandLine -like '*canvas_helper*gui*' -or $_.CommandLine -like '*canvas_helper gui*' } |
         Select-Object -First 1
 } else {
     # Packaged build: there is no useful command line, so identify it by the
     # main window title instead.
-    $target = $procs |
+    $target = Get-CimInstance Win32_Process -Filter ("Name = '{0}'" -f $ProcessName) |
         Where-Object {
             $proc = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
             $proc -and $proc.MainWindowTitle -like 'CanvasHelper*'

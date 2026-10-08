@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 from .paths import PROJECT_DIR, get_logger
 
@@ -13,15 +14,31 @@ TASK_SYNC = "CanvasHelper-DailySync"
 TASK_REPORT = "CanvasHelper-WeeklyReport"
 
 
-def _python() -> str:
-    return sys.executable
+def _pythonw() -> str:
+    """同目录的 ``pythonw.exe``（无控制台解释器）；找不到才退回 ``sys.executable``。
+
+    退回时计划任务会重新变成一个控制台进程，但总比注册不上去强。
+    """
+    w = Path(sys.executable).with_name("pythonw.exe")
+    return str(w) if w.exists() else sys.executable
 
 
 def _cmd(sub: str) -> str:
-    # schtasks 没有「起始位置」参数，默认从 System32 起跑——那时既 import 不到源码目录
-    # 的包（未 pip install 时必然 No module named canvas_helper），日志与相对路径也全错位。
-    # 显式 cd 过去：源码运行与 pip 安装两种形态都能工作。
-    return f'cmd /c cd /d "{PROJECT_DIR}" && "{_python()}" -m canvas_helper {sub}'
+    # 从前是：cmd /c cd /d "<项目目录>" && "<python.exe>" -m canvas_helper ...
+    #
+    # 两个毛病，一起治：
+    #
+    # 1. 每天弹一个黑框。cmd 与 python.exe 都是控制台程序，schtasks 一到点
+    #    就开一个窗口，而这条命令的唯一目的就是后台同步。pythonw.exe 没有
+    #    控制台，但它也不会 cd。
+    # 2. 起始目录必须对。schtasks 的 /Create 没有「起始目录」参数，默认从
+    #    System32 起跑——那时未 pip install 的源码目录根本 import 不到包，
+    #    过去只能靠 `cmd /c cd /d` 兜住，于是连带把控制台也带上了。
+    #
+    # 现在把「定位源码目录」挪进 scripts/headless_entry.py（用 __file__ 塞
+    # sys.path），命令里就只剩一个无控制台解释器，起始目录从此无关紧要。
+    entry = PROJECT_DIR / "scripts" / "headless_entry.py"
+    return f'"{_pythonw()}" "{entry}" {sub}'
 
 
 def _run(args: list[str]) -> tuple[bool, str]:

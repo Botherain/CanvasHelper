@@ -7,6 +7,46 @@
 
 ## [未发布]
 
+### 修复 · 命令行启动不再伴随黑框
+
+- `启动Canvas助手.bat` 改为 `start` + `pythonw.exe`：原先 `python.exe` 前台阻塞，
+  cmd 黑框与主窗口同生命周期地挂着；现在 cmd 立即返回、`pythonw` 没有控制台，
+  启动过程只剩主窗口本身。
+- `.bat` 全文改纯 ASCII——`chcp 65001` 会在文件中途切换代码页，中文 `rem` 注释
+  被从行中重新解析、尾部当成命令执行；与 `capture_gui.ps1` 是同一条约定。
+- 计划任务命令去掉 `cmd /c`：改为 `pythonw.exe` + `scripts/headless_entry.py`，
+  入口用 `__file__` 定位源码目录，起始目录不再影响导入，每日同步不再闪黑框。
+- `scripts/capture_gui.ps1` 的进程定位改按命令行匹配任意 `python*`，不再写死
+  `python.exe`，因而也能截到 `pythonw.exe` 拉起的窗口。
+
+### 修复 · GUI 运行期间不再闪黑框
+
+用户反馈「命令行在测试中经常弹出又自动消失」。用 20ms 轮询顶层窗口的探针定位到
+真正的来源：GUI 跑在**没有控制台**的 `pythonw` 里，此时裸调 `tasklist` /
+`taskkill` / `cmd`，Windows 会给每个子进程**新建一个可见控制台**，子进程一结束窗
+口立刻销毁——于是：
+
+- `deskbox.py` 的 `is_running()`，而 `_refresh_deskbox_state` 每 4 秒调它一次
+  → 黑框每 4 秒闪一次，实测每个 0.19~0.41 秒；
+- `gui.py` 三处 `cmd /c start`（打开 Canvas / 导出的 `.ics` / 通知链接）
+  → 点一下闪一个。
+
+改法：
+
+- `deskbox.py` 的 `tasklist` / `taskkill` / `Popen(DeskBox)` 全部加
+  `CREATE_NO_WINDOW`；
+- `gui.py` 改用 `os.startfile()`（ShellExecute，根本不派生进程），`subprocess`
+  依赖随之移除；ruff 放行 `S606`，理由与已有的 `S603` / `S607` 同一批；
+- 桌面快捷方式改为直启 `pythonw`（见「应用图标」一节）——`.bat` 自带的那约 0.2 秒
+  控制台无法从 `.bat` 内部消除，只有绕开它才行。
+
+复验（同一场景、同一探针，修复前后对比）：
+
+| 场景 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 双击 `.bat` 启动、GUI 随后跑十几秒 | 4 个（1 个 `.bat` 自带 + 3 个 `tasklist`） | 1 个（只剩 `.bat` 自带的） |
+| 桌面快捷方式启动、GUI 跑 14 秒 | — | **0 个** |
+
 ### 改进 · 通知不再一直保留
 
 - **通知正文彻底不落盘**。旧版把每次拉到的通知写进 `state.json` 的
