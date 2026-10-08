@@ -18,3 +18,5 @@ dist/
 
 # PyInstaller 生成的构建文件（由 scripts/pyinstaller_entry.py + 命令行参数重建）
 *.spec
+# 快捷方式带本机绝对路径，只入库生成脚本 scripts/make_shortcut.ps1
+*.lnk

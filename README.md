@@ -10,6 +10,8 @@
 > 与 Instructure / Canvas 及你所在院校无任何关联。见文末 [许可与免责](#许可与免责)。
 
 <p align="center">
+  <img src="docs/icons/canvashelper.png" alt="应用图标" width="96">
+  <br>
   <img src="docs/screenshots/gui-main.png" alt="主界面：通知 / 公告聚合" width="860">
   <br>
   <sub>主界面 —— 通知聚合页。顶部五个标签：课程同步、待办（DeskBox）、通知 / 公告、成绩、设置。</sub>
@@ -41,6 +43,14 @@ canvas-helper            # 安装后的命令行入口
 .\启动Canvas助手.bat
 # 或
 python -m canvas_helper
+```
+
+**桌面快捷方式**（带上图那个图标；直接以 `pythonw` 启动 GUI，**全程没有控制台**，
+点开即用；`.bat` 本身无法承载图标，且双击时 Windows 必先给它一个控制台，所以快捷
+方式不走 `.bat`）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make_shortcut.ps1
 ```
 
 装好之后还有两个小命令：
@@ -273,8 +283,13 @@ CanvasHelper\
 │  └─ test_canvas_api.py 文件发现退化路径的离线回归（7 个用例，不联网）
 ├─ scripts\
 │  ├─ pyinstaller_entry.py  打包入口（__main__.py 是相对导入，不能当独立脚本分析）
-│  └─ capture_gui.ps1       截 README 用的窗口截图（支持源码版与打包版）
+│  ├─ headless_entry.py     计划任务入口（__file__ 定位源码，配 pythonw 免黑框）
+│  ├─ make_icon.py          源图 → 裁边框 → 多尺寸 ico（小档 BMP + 256 PNG，--verify 体检）
+│  ├─ make_shortcut.ps1     生成桌面快捷方式（直启 pythonw 免控制台，挂 ico；.lnk 不入库）
+│  └─ capture_gui.ps1       截 README 用的窗口截图（源码版 / 打包版，兼容 pythonw）
 ├─ docs\
+│  ├─ icons\canvashelper.ico    应用图标（16~128 BMP + 256 PNG 七档）
+│  ├─ icons\canvashelper.png    图标预览（README 顶部展示）
 │  ├─ screenshots\gui-main.png  主界面截图
 │  └─ RELEASING.md              发布流程 / 转公开 scrub 清单 / 打包双轨 / 代码签名方案
 ├─ .github\
@@ -284,7 +299,7 @@ CanvasHelper\
 ├─ CHANGELOG.md       变更记录
 ├─ config.example.json  配置模板（可写数据不在这里，见「数据目录」）
 ├─ LICENSE
-└─ 启动Canvas助手.bat   用 %~dp0，位置随意
+└─ 启动Canvas助手.bat   用 %~dp0，位置随意；start + pythonw，启动不留黑框
 ```
 
 ## 版本历史与发布

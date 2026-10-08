@@ -7,6 +7,24 @@
 
 ## [未发布]
 
+### 新增 · 应用图标
+
+- 新增 `docs/icons/canvashelper.ico`（16/24/32/48/64/128 BMP + 256 PNG 七档）
+  与 `docs/icons/canvashelper.png` 预览图，README 顶部同步展示。
+  小档走 BMP 是因为 GDI / .NET 的 `Icon.ToBitmap` 只认 BMP，收到 PNG 帧会画成
+  一片噪点；256 走 PNG 是为了省体积（BMP 那一档要 260 多 KB，而 shell 从 Vista
+  起本来就优先取 PNG）。Pillow 的 `bitmap_format` 只是「整份 save」的开关、不支持
+  逐帧，所以先各存一份再按帧拼装。
+- `scripts/make_icon.py`：裁掉源图四周边框 → 取中心正方形 → 归一到 256px → 写出
+  多尺寸 ico；`--verify` 可离线体检，解析 ico 目录逐档列出尺寸与编码方式。
+- `scripts/make_shortcut.ps1`：生成桌面快捷方式并挂上该图标。目标是
+  `pythonw.exe -X utf8 -m canvas_helper gui`——`.bat` 本身无法承载图标，而且双击
+  `.bat` 时 Windows 必先给 cmd 一个控制台（实测约 0.2 秒黑框，`.bat` 内部消不
+  掉），直启 `pythonw` 则一次窗口都不开。`.lnk` 含本机绝对路径，仓库只收生成
+  脚本，`*.lnk` 已进 `.gitignore`。
+- PyInstaller 打包命令加上 `--icon docs\icons\canvashelper.ico`（入口同时订正为
+  `scripts\pyinstaller_entry.py`），`docs/RELEASING.md` 同步。
+
 ### 修复 · 命令行启动不再伴随黑框
 
 - `启动Canvas助手.bat` 改为 `start` + `pythonw.exe`：原先 `python.exe` 前台阻塞，

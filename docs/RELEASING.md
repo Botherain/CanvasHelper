@@ -55,12 +55,17 @@ python -m pip install pyinstaller
 pyinstaller --noconfirm --clean ^
     --name CanvasHelper ^
     --windowed ^
+    --icon "docs\icons\canvashelper.ico" ^
     --collect-all playwright ^
     --hidden-import canvas_helper ^
-    canvas_helper\__main__.py
+    scripts\pyinstaller_entry.py
 ```
 
-- `--windowed` 起控制台（tkinter 主程序）。
+- `--windowed` 不起控制台（tkinter 主程序）。
+- 入口必须是 `scripts\pyinstaller_entry.py`：`canvas_helper\__main__.py` 里的都是
+  相对导入，被当成独立脚本分析会直接失败。
+- `--icon` 取仓库里的 `docs\icons\canvashelper.ico`（16~128 BMP + 256 PNG 七档）。
+  换图只需改源图后重跑 `python scripts\make_icon.py`，再按本命令重打包。
 - 产物在 `dist\CanvasHelper\`，压缩成 zip 即可分发。
 - **注意**：单文件模式（`--onefile`）会让 Playwright 的浏览器与
   `%LOCALAPPDATA%` 数据目录解包路径（`_MEIPASS`）产生问题，

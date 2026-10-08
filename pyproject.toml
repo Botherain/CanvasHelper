@@ -33,7 +33,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+# Pillow 只给 scripts/make_icon.py 用，放进来是为了让 CI 的 mypy 也能解析 PIL——
+# 否则 lint 任务会在 scripts/make_icon.py 上报 import-not-found（实测踩过）。
+# 它只是可选依赖，项目**运行时**依旧是零依赖。
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pillow>=10",
+]
 
 [project.scripts]
 canvas-helper = "canvas_helper.__main__:main"
