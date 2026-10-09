@@ -112,7 +112,21 @@ def build_plan(course: Course, folder: Path, items: list[Item], state: dict) -> 
             continue
 
         plan.files.append(PlannedFile(item, target, "download", size))
+
+    _append_archive_notes(plan, state)
     return plan
+
+
+def _append_archive_notes(plan: CoursePlan, state: dict) -> None:
+    """给计划里的压缩包补一行判定说明（已解压 / 数据包 / 下载后判定）。"""
+    from . import extract
+
+    for pf in plan.files:
+        if pf.item.kind != "File":
+            continue
+        extra = extract.plan_note(pf.target, state)
+        if extra:
+            pf.note = f"{pf.note} · {extra}" if pf.note else extra
 
 
 def execute_plan(
@@ -122,9 +136,31 @@ def execute_plan(
     progress: ProgressCb = lambda m: None,
     stop_flag: Callable[[], bool] | None = None,
 ) -> dict:
-    """执行下载，返回统计。"""
-    stats = {"downloaded": 0, "pages": 0, "exists": 0, "bytes": 0, "errors": 0}
+    """执行下载与压缩包解压，返回统计。"""
+    from . import extract
+    from .paths import load_config
+
+    arc_cfg = extract.cfg_archives(load_config())
+    stats = {"downloaded": 0, "pages": 0, "exists": 0, "bytes": 0, "errors": 0,
+             "archives": 0, "archive_files": 0}
     dirty = False
+
+    def _extract_one(pf: PlannedFile, plan: CoursePlan) -> bool:
+        """新下载的和本地已有的压缩包都过一遍（已处理的按 state 幂等跳过）。"""
+        try:
+            res = extract.process(pf.target, state, arc_cfg, progress)
+        except Exception as exc:  # 解压问题绝不能连累下载流程
+            log.error("解压处理失败 %s: %s", pf.target.name, exc)
+            plan.errors.append(f"{pf.target.name}: 解压失败 {exc}")
+            return False
+        if res is None:
+            return False
+        if res.changed and res.kind == "extracted":
+            stats["archives"] += 1
+            stats["archive_files"] += res.count
+        if res.changed and res.kind in ("error", "broken"):
+            plan.errors.append(f"{pf.target.name}: {res.reason}")
+        return res.changed
 
     for plan in plans:
         for pf in plan.files:
@@ -134,6 +170,8 @@ def execute_plan(
                 return stats
             if pf.action == "exists":
                 stats["exists"] += 1
+                if pf.item.kind == "File" and pf.target.is_file() and _extract_one(pf, plan):
+                    dirty = True
                 continue
             try:
                 ensure_parent(pf.target)
@@ -158,6 +196,8 @@ def execute_plan(
                     stats["bytes"] += len(data)
                     _record(state, plan.course.id, pf.item, pf.target, size=len(data))
                     dirty = True
+                    if _extract_one(pf, plan):
+                        dirty = True
             except Exception as exc:
                 stats["errors"] += 1
                 plan.errors.append(f"{pf.target.name}: {exc}")

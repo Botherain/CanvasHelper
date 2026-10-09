@@ -10,6 +10,15 @@
     "book": "5.Books",
     "other": "6.Others"
   },
+  "archives": {
+    "extract": true,
+    "skip_junk": true,
+    "max_total_bytes": 2147483648,
+    "data_name_hints": [
+      "data", "dataset", "datasets", "train", "test",
+      "validation", "labels", "mnist", "cifar", "imagenet", "audio"
+    ]
+  },
   "deskbox": {
     "enabled": true,
     "todo_path": "",

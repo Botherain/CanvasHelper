@@ -70,3 +70,11 @@ def test_8_登录过期不再静默失败() -> None:
 
 def test_9_打包元数据() -> None:
     _run("[9] 打包元数据 pyproject.toml", smoke.s9_packaging)
+
+
+def test_10_压缩包判定与解压() -> None:
+    _run("[10] 压缩包判定与解压", smoke.s10_extract)
+
+
+def test_11_讲义整理() -> None:
+    _run("[11] 讲义整理", smoke.s11_tidy)

@@ -305,6 +305,7 @@ class App(tk.Tk):
         self.var_ics = tk.BooleanVar(value=self.cfg["extras"]["ics"])
         self.var_grades = tk.BooleanVar(value=self.cfg["extras"]["grades"])
         self.var_notices = tk.BooleanVar(value=self.cfg["extras"]["notices"])
+        self.var_extract = tk.BooleanVar(value=(self.cfg.get("archives") or {}).get("extract", True))
         self.var_policy = tk.StringVar(value=self.cfg["deskbox"]["background_policy"])
         self.var_sched = tk.BooleanVar(value=self.cfg["schedule"]["enabled"])
         self.var_synctime = tk.StringVar(value=self.cfg["schedule"]["sync_time"])
@@ -331,39 +332,43 @@ class App(tk.Tk):
             row=6, column=0, columnspan=3, sticky="w")
         ttk.Checkbutton(tab, text="读取并聚合通知/公告", variable=self.var_notices).grid(
             row=7, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(
+            tab, text="下载后自动解压压缩包（内容包解压，数据包原样保留）",
+            variable=self.var_extract).grid(row=8, column=0, columnspan=3, sticky="w")
 
         ttk.Label(tab, text="后台（计划任务）同步时 DeskBox 待办处理方式",
-                  style="Header.TLabel").grid(row=8, column=0, sticky="w", pady=(14, 4))
+                  style="Header.TLabel").grid(row=9, column=0, sticky="w", pady=(14, 4))
         for i, (val, text) in enumerate((
             ("queue", "排队：不打扰 DeskBox，下次打开本程序时写入（推荐）"),
             ("restart", "立即重启 DeskBox 完成写入"),
             ("skip", "跳过：后台同步不写待办"),
         )):
             ttk.Radiobutton(tab, text=text, value=val, variable=self.var_policy).grid(
-                row=9 + i, column=0, columnspan=3, sticky="w")
+                row=10 + i, column=0, columnspan=3, sticky="w")
 
         ttk.Label(tab, text="计划任务", style="Header.TLabel").grid(
-            row=12, column=0, sticky="w", pady=(14, 4))
+            row=13, column=0, sticky="w", pady=(14, 4))
         ttk.Checkbutton(tab, text="启用每日自动同步", variable=self.var_sched).grid(
-            row=13, column=0, sticky="w")
-        ttk.Entry(tab, textvariable=self.var_synctime, width=10).grid(row=13, column=1, sticky="w")
-        ttk.Checkbutton(tab, text="每周生成学习摘要", variable=self.var_report).grid(
             row=14, column=0, sticky="w")
+        ttk.Entry(tab, textvariable=self.var_synctime, width=10).grid(row=14, column=1, sticky="w")
+        ttk.Checkbutton(tab, text="每周生成学习摘要", variable=self.var_report).grid(
+            row=15, column=0, sticky="w")
         ttk.Label(tab, text="（计划任务执行时使用已保存的浏览器登录态，无窗口）",
-                  foreground="#666").grid(row=15, column=0, columnspan=3, sticky="w")
+                  foreground="#666").grid(row=16, column=0, columnspan=3, sticky="w")
 
         btns = ttk.Frame(tab)
-        btns.grid(row=16, column=0, columnspan=3, sticky="w", pady=(18, 0))
+        btns.grid(row=17, column=0, columnspan=3, sticky="w", pady=(18, 0))
         ttk.Button(btns, text="保存设置", command=self.do_save_settings).pack(side="left")
         ttk.Button(btns, text="立即生成本周摘要", command=self.do_report).pack(side="left", padx=6)
         ttk.Button(btns, text="一键清理缓存", command=self.do_clean_cache).pack(side="left", padx=6)
+        ttk.Button(btns, text="整理讲义目录", command=self.do_tidy).pack(side="left", padx=6)
         ttk.Button(btns, text="打开数据目录", command=self.open_project).pack(side="left")
 
         ttk.Label(
             tab,
             text=f"浏览器登录态保存在：{PROFILE_DIR}  ·  日志：{LOG_PATH}",
             foreground="#666",
-        ).grid(row=17, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ).grid(row=18, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
     # ---------- 交互 ----------
 
@@ -512,6 +517,9 @@ class App(tk.Tk):
             s = res.stats
             summary = (f"\n\n下载 {s.get('downloaded', 0)} 个文件 + {s.get('pages', 0)} 个页面，"
                        f"已存在 {s.get('exists', 0)} 项，错误 {s.get('errors', 0)} 个")
+            if s.get("archives"):
+                summary += (f"\n解压 {s['archives']} 个压缩包"
+                            f"（+{s.get('archive_files', 0)} 个文件）")
             mode = {"swapped": "DeskBox 已重启写入", "applied": "已直接写入",
                     "queued": "待办已排队", "none": "无新增待办", "disabled": "待办功能已关闭"}
             summary += f"\n待办：{mode.get(res.todo_mode, res.todo_mode)}（新增 {len(res.todo_added)} 条）"
@@ -714,6 +722,58 @@ class App(tk.Tk):
         ttk.Button(bar, text="开始清理", command=start).pack(side="right")
         ttk.Button(bar, text="取消", command=win.destroy).pack(side="right", padx=6)
 
+    def do_tidy(self) -> None:
+        """整理讲义目录：先列出移动方案，确认后才动文件。"""
+        from . import tidy
+
+        root = Path(self.cfg.get("classes_root") or "")
+        if not root.is_dir():
+            messagebox.showinfo(APP_NAME, "课程根目录不存在，请先在上面选择。")
+            return
+        plans = [tidy.plan_course(d) for d in course_dirs(root).values()]
+        text = tidy.render(plans)
+        pending = sum(len(p.todo) for p in plans)
+        if not pending:
+            messagebox.showinfo(APP_NAME, text)
+            return
+
+        win = tk.Toplevel(self)
+        win.title("整理讲义目录")
+        win.geometry("760x480")
+        win.transient(self)
+        win.grab_set()
+        ttk.Label(win, text="以下是移动方案（只移动、不删除；确认后才执行）",
+                  style="Header.TLabel").pack(anchor="w", padx=16, pady=(14, 6))
+        box = ScrolledText(win, font=("Consolas", 9))
+        box.pack(fill="both", expand=True, padx=16)
+        box.insert("end", text)
+        box.configure(state="disabled")
+
+        def start() -> None:
+            if not messagebox.askyesno(
+                    APP_NAME,
+                    f"将移动 {pending} 个文件到各自章节目录。\n\n"
+                    "只移动、不删除；重名自动加 (1)。继续？", parent=win):
+                return
+            win.destroy()
+
+            def job():
+                return tidy.run(plans, progress=self._progress)
+
+            def ok(rep: dict) -> None:
+                msg = (f"讲义整理完成：移动 {rep['moved']} 个，跳过 {rep['skipped']} 个"
+                       + (f"，失败 {rep['errors']} 个" if rep.get("errors") else "")
+                       + "（未删除任何文件）")
+                self.log(msg)
+                messagebox.showinfo(APP_NAME, msg)
+
+            self.bg(job, on_done=ok)
+
+        bar = ttk.Frame(win)
+        bar.pack(fill="x", padx=16, pady=14)
+        ttk.Button(bar, text=f"执行移动（{pending} 项）", command=start).pack(side="right")
+        ttk.Button(bar, text="取消", command=win.destroy).pack(side="right", padx=6)
+
     def do_export_ics(self) -> None:
         drafts = getattr(self.result, "drafts", None) if self.result else None
         if not drafts:
@@ -808,6 +868,7 @@ class App(tk.Tk):
         self.cfg["extras"]["ics"] = self.var_ics.get()
         self.cfg["extras"]["grades"] = self.var_grades.get()
         self.cfg["extras"]["notices"] = self.var_notices.get()
+        self.cfg.setdefault("archives", {})["extract"] = self.var_extract.get()
         self.cfg["schedule"]["enabled"] = self.var_sched.get()
         self.cfg["schedule"]["sync_time"] = self.var_synctime.get().strip() or "08:30"
         self.cfg["schedule"]["report_enabled"] = self.var_report.get()

@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from .paths import ensure_dirs, get_logger
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    # Windows 控制台默认 GBK，中文输出会 UnicodeEncodeError；pythonw 下
+    # stdout 是 None，必须先判空。放在最前面：编码要在第一次 print 前切。
+    if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     ensure_dirs()
     log = get_logger()
 
@@ -119,13 +124,31 @@ def main(argv: list[str] | None = None) -> int:
             log.info("%d 个文件被占用，已跳过", rep["skipped"])
         return 0
 
-    print("用法: python -m canvas_helper [gui|sync|report|flush|clean|login|courses] "
+    if cmd == "tidy":
+        from . import tidy
+        from .paths import load_config
+
+        plans = tidy.plan_all(Path(load_config()["classes_root"]))
+        print(tidy.render(plans))
+        if not any(p.todo for p in plans):
+            return 0
+        if "--apply" in argv:
+            rep = tidy.run(plans, progress=log.info)
+            print(f"已移动 {rep['moved']} 个文件，跳过 {rep['skipped']} 个，"
+                  f"失败 {rep['errors']} 个")
+            return 1 if rep["errors"] else 0
+        print("\n以上为预览，未改动任何文件。确认后执行：")
+        print("  python -m canvas_helper tidy --apply")
+        return 0
+
+    print("用法: python -m canvas_helper [gui|sync|report|flush|clean|tidy|login|courses] "
           "[--headless] [--version]")
     print("  gui      启动图形界面（默认）")
     print("  sync     立即同步课程文件与待办")
     print("  report   生成本周学习摘要")
     print("  flush    把后台排队的待办写入 DeskBox")
     print("  clean    一键清理缓存（--dry 预览，--login 连登录态一起清）")
+    print("  tidy     整理讲义：先预览移动方案，--apply 才真正执行")
     print("  login    交互式登录并保存会话")
     print("  courses  列出已识别课程")
     return 2

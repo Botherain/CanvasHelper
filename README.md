@@ -135,7 +135,7 @@ canvas-helper sync --headless    # 后台同步（计划任务用的就是它）
 
 | 以前的做法 | 用本工具之后 |
 | --- | --- |
-| 一门课点进 Files 下载讲义 / 作业，再手动分文件夹 | 勾选课程 → **开始同步**，自动归档到 `1.Lecture session` … `6.Others`，本地已有的跳过 |
+| 一门课点进 Files 下载讲义 / 作业，再手动分文件夹 | 勾选课程 → **开始同步**，自动归档到 `1.Lecture session` … `6.Others`，讲义按章分文件夹、压缩包自动解压，本地已有的跳过 |
 | 截止时间散在各课作业页 / 公告里，容易漏 | 同步时统一写进 **DeskBox 待办**（附 Canvas 原链接），或导出 `.ics` 进 Windows / 手机日历 |
 | 想知道这周该干什么、考了多少分 | 通知 / 公告、成绩聚合在一页看；每周生成 `本周摘要-YYYY-Wnn.md` |
 | 每天手动重复一遍 | 注册计划任务，每天后台同步一次（无窗口） |
@@ -191,6 +191,8 @@ python -m canvas_helper preview            # 只预览归档计划，不写盘
 python -m canvas_helper clean --dry        # 预览可清理的缓存与体积
 python -m canvas_helper clean              # 清理默认项（状态/日历/日志/浏览器缓存）
 python -m canvas_helper clean --login      # 连登录态一起清（之后需重新登录）
+python -m canvas_helper tidy              # 预览讲义整理方案（不写盘）
+python -m canvas_helper tidy --apply      # 确认后执行：散件移进章节目录
 ```
 
 ## 文件发现
@@ -241,8 +243,26 @@ python -m canvas_helper clean --login      # 连登录态一起清（之后需�
 - 文件夹路径是最强信号（`course files/Lecture/Week3` → 讲义，`course files/Tutorial/Week2` → 习题课）；
   例外：文件夹只是泛泛的 `Week N`，而文件名明确写了作业/项目时，以文件名为准。
 - 目标目录**镜像 Canvas 文件夹层级**，并复用本地既有目录名：
-  `course files/Assignment1/CV_guideline/data/gallery` → `3.Assignments/Assignment_1/CV_guideline/data/gallery`。
-  讲义分类始终平铺；`Tutorial` / `Tutorials` 这类本身就是分类词的首段不再多建一层。
+  `course files/Assignment1/CV_guideline/data/gallery` → `3.Assignments/Assignment_1/CV_guideline/data/gallery`；
+  `Tutorial` / `Tutorials` 这类本身就是分类词的首段不再多建一层。
+- **讲义按章分组，不再平铺**：识别到章节号就归进子目录（
+  `1.Lecture session/Lecture3/Lecture3a.pdf`），编号来源优先级为
+  **Canvas 文件夹里的编号 > 模块名/文件名的「关键字+编号」（`Lecture3a` `Week 2`）
+  > 文件名纯数字开头（`1.Review of Algorithms.pptx`、`0.Introduction.pptx`）**；
+  目录名跟着本地既有样式走（已有 `Lecture1` 就一律 `Lecture{n}`）。
+  识别不到编号的散件（`data.zip`、`jupyter-shortcuts.pdf`）留在根目录平铺，
+  `CS0003 - Lecture slides.pdf` 这类也不会被「名字里第一个数字」误分成 `Lecture54`。
+- **压缩包自动解压**（设置页可关）：内容包（含 `.ipynb` / `.py` / `.pdf` …）解压到就近
+  目录（`Lecture3\Lecture3.zip` 解进 `Lecture3\`），**数据包原样保留**——包名命中
+  `data` / `dataset` / `train` …，或忽略 `README*` 后包内没有任何讲义/代码文件
+  （`.sh` 装机脚本与 `.txt` 不算内容信号）的，一律不解压
+  （`data.zip` 这类正是 ipynb 要读的原始数据）。判定在本机 35 个真实课程压缩包上标定过：
+  17 个讲义/作业包全解、10 个数据包全留。解压逐条手工写盘、拒绝 `..` 越界
+  （zip-slip）、跳过 `__MACOSX` / `._*` 垃圾、带体积上限；判定结果记进 `state`，
+  重复同步不会解第二遍，压缩包本身永远保留。
+- **整理已有的散件**：设置页 **整理讲义目录** 或 `python -m canvas_helper tidy`
+  先列出「哪些文件移到哪个章节目录」的方案，确认后才移动——只移动不删除，
+  重名自动加 `(1)`，`state.json` 里的路径跟着回写。
 - 分类目录以磁盘上已存在的 `N.` 目录为准，例如 `5.Useful links` 与 `5.Books` 二选一。
 - 本地已有内容不重复下载：按**归一化文件名 + 大小**判断，
   Canvas 的 `1. Review of Algorithms.pptx` 能对上本地 `1.Review of Algorithms.pptx`、

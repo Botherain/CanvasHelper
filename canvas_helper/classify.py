@@ -44,13 +44,23 @@ _SUB_STYLE: dict[str, tuple[str, ...]] = {
     "tutorial": ("week", "tutorial", "recitation", "session"),
     "assignment": ("assignment", "hw", "homework", "lab"),
     "project": ("project", "proposal", "phase"),
-    "lecture": (),
+    # 讲义按章/周分组：`Lecture1` / `Week3` 这类既有目录就是样式样本
+    "lecture": ("lecture", "week", "chapter", "topic", "unit", "lec", "session"),
     "book": (),
     "other": (),
 }
 
 # 例如 Assignment_1 / Week1 / Tutorial 3 -> (词, 分隔符, 数字)
 SUBDIR_RE = re.compile(r"^([A-Za-z]+)([\s_\-]*)(\d+)")
+
+# 章节识别：关键字 + 编号（Lecture3a / Week 2 / chapter-4 / Ch3）。
+# 只认「词 + 数字」这种强信号——用「名字里第一个数字」会让
+# `CS0003 - Lecture slides.pdf` 被误分成 Lecture54。
+_CHAPTER_KW = r"(?:lectures?|lecs?|weeks?|wk|chapters?|chap|ch|topics?|units?|sessions?)"
+CHAPTER_RE = re.compile(rf"\b({_CHAPTER_KW})[\s_\-]*(\d{{1,2}})\b", re.IGNORECASE)
+
+# 纯数字开头：`1.Review of Algorithms.pptx`、`0.Introduction.pptx`、`5.3. Network…`
+NUM_PREFIX_RE = re.compile(r"^(\d{1,2})(?=[\s_\-.])")
 
 
 def sanitize(name: str) -> str:
@@ -193,6 +203,78 @@ def _number(module_name: str, title: str) -> int | None:
     return None
 
 
+def _chapter_hit(text: str) -> tuple[int, str] | None:
+    """「关键字 + 编号」命中 -> (编号, 命中的词)；第 0 章也算。"""
+    m = CHAPTER_RE.search(_norm(text or ""))
+    if m and 0 <= int(m.group(2)) <= 60:
+        return int(m.group(2)), m.group(1)
+    return None
+
+
+def _num_prefix_hit(text: str) -> int | None:
+    """文件名纯数字开头 -> 编号（`1.Review…` / `0.Introduction…`）。"""
+    m = NUM_PREFIX_RE.match((text or "").strip())
+    if m and 0 <= int(m.group(1)) <= 60:
+        return int(m.group(1))
+    return None
+
+
+def _singular(word: str) -> str:
+    """Lectures -> Lecture、Weeks -> Week，并统一成 Title 大小写。"""
+    w = word or ""
+    if len(w) > 3 and w.lower().endswith("s") and not w.lower().endswith("ss"):
+        w = w[:-1]
+    return w[:1].upper() + w[1:].lower()
+
+
+def lecture_dir(cat_dir: Path, folder_path: str, module_name: str, title: str) -> Path:
+    """讲义的章节目录；识别不到章节号时返回分类目录本身（保持平铺）。
+
+    编号取值优先级：**Canvas 文件夹里的编号 > 模块名/文件名的关键字+编号 >
+    文件名纯数字开头**。目录名以本地既有样式为准（`Lecture1` 样本 -> 一律
+    `Lecture{n}`），没有样本才用命中的词，再没有就默认 `Lecture`。
+    """
+    segs = folder_segments(folder_path)
+    hit: tuple[int, str] | None = None
+    num: int | None = None
+
+    # ① 结构信号：Canvas 文件夹里的编号（关键字优先，纯数字其次）
+    for seg in segs:
+        hit = _chapter_hit(seg)
+        if hit:
+            num = hit[0]
+            break
+    if num is None:
+        for seg in segs:
+            num = _num_prefix_hit(seg)
+            if num is not None:
+                break
+
+    # ② 关键字 + 编号：模块名 -> 文件名
+    word = hit[1] if hit else ""
+    if num is None:
+        for src in (module_name, title):
+            hit = _chapter_hit(src)
+            if hit:
+                num, word = hit
+                break
+
+    # ③ 纯数字开头的文件名
+    if num is None:
+        num = _num_prefix_hit(title)
+    if num is None:
+        return cat_dir  # 识别不到章节（data.zip / jupyter-shortcuts.pdf）-> 平铺
+
+    sample = _style_sample(cat_dir, "lecture")
+    if sample:
+        out_word, sep = sample          # 跟随本地既有样式，如 Lecture1 -> Lecture{n}
+    elif word:
+        out_word, sep = _singular(word), ""
+    else:
+        out_word, sep = "Lecture", ""
+    return _find_numbered(cat_dir, out_word, num) or (cat_dir / f"{out_word}{sep}{num}")
+
+
 def _style_sample(cat_dir: Path, key: str) -> tuple[str, str] | None:
     """在分类目录里找一个已有的数字子目录，返回 (词, 分隔符) 作为样式样本。"""
     prefixes = _SUB_STYLE.get(key, ())
@@ -244,12 +326,13 @@ def resolve_dir(cats: CategoryDirs, folder_path: str, module_name: str,
 
     优先**镜像 Canvas 文件夹结构**，例如
     `course files/Assignment1/CV_guideline/data` -> `3.Assignments/Assignment_1/CV_guideline/data`；
-    讲义分类始终平铺，与本地现状一致。
+    讲义分类按章/周归组到 `1.Lecture session/Lecture3/`，识别不到章节号的
+    （`data.zip` 这类散件）保持平铺，见 `lecture_dir`。
     """
     key = category_of(folder_path, title, kind, module_name)
     cat_dir = cats.get(key)
     if key == "lecture":
-        return cat_dir  # 讲义平铺
+        return lecture_dir(cat_dir, folder_path, module_name, title)
 
     segs = folder_segments(folder_path)
     if segs and _is_category_word(segs[0], key):

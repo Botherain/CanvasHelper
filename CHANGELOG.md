@@ -7,6 +7,35 @@
 
 ## [未发布]
 
+### 新增 · 讲义按章归档与压缩包自动解压
+
+- **讲义不再平铺**：识别到章节号就归进 `1.Lecture session/Lecture3/`。编号优先级为
+  Canvas 文件夹 > 模块名/文件名「关键字+编号」（`Lecture3a` / `Week 2`）> 文件名纯
+  数字开头（`1.Review of Algorithms.pptx` → `Lecture1`），目录名复用本地既有样式
+  （已有 `Lecture1` 就一律 `Lecture{n}`）。刻意**不**用「名字里第一个数字」，
+  `CS0003 - Lecture slides.pdf` 不会被误分成 `Lecture54`；识别不到编号的散件
+  （`data.zip`、`jupyter-shortcuts.pdf`）保持平铺。
+- **下载后自动解压**（新增 `archives` 配置段 + 设置页勾选，可关）：内容包解到就近
+  目录（`Lecture3\Lecture3.zip` 解进 `Lecture3\`、`data.zip` 解进 `data\`），
+  **数据包原样保留**——包名命中 `data` / `dataset` / `train` …，或忽略 `README*` 后
+  包内没有任何讲义/代码文件的一律不解压（`.sh` 装机脚本、`.txt` 不算内容信号，
+  这正是 ipynb 要读的原始数据）。判定在本机 35 个真实课程压缩包上标定：17 个讲义/
+  作业包全解、10 个数据包全留（含 `README.md`+csv 的、`README`+`.sh`+tsv 的）；
+  刻意**不**按「数据文件占比」判——真实 `Lecture5/6.zip` 图片占 72% / 91%，会被误伤。
+  解压逐条手工写盘（绝不 `extractall`）、拒绝 `..` 越界（zip-slip）、跳过
+  `__MACOSX` / `._*` / `.DS_Store` 垃圾、单包 2 GiB 体积上限、同名同大小跳过；
+  判定与结果按「路径 + 大小」记进 `state["archives"]`，重复同步不会解第二遍；
+  `.tar` / `.tar.gz` 一并支持，`.rar` / `.7z` 如实标注「不支持」；压缩包本身永远保留。
+- **预览与摘要都能看到**：计划里每个压缩包带 `压缩包已解压 / 数据包，不解压 /
+  下载后自动判定解压` 备注，同步摘要多一行「解压 N 个压缩包（+M 个文件）」。
+- **整理已有的散件**：新增 `python -m canvas_helper tidy`（默认只预览，`--apply` 才
+  执行）与设置页「整理讲义目录」按钮，把根目录的 `LectureN.zip` / `LectureNa.pdf`
+  移进各自章节目录——只移动不删除、重名自动加 `(1)`、`state.json` 的路径与解压记录
+  键跟着回写。
+- 新增 `canvas_helper/extract.py`、`canvas_helper/tidy.py`；离线自检新增第 [10]
+  [11] 小节（判定规则、zip-slip、幂等、tidy 预览/移动/state 回写），
+  smoke 断言 129 → 165、pytest 用例 25 → 27。
+
 ### 文档 · README 补齐快速开始、基础教程、安全与隐私与 DeskBox 介绍
 
 - **快速开始**扩成四步：① 取得项目文件（clone / ZIP）→ ② 装依赖 → ③ 首次启动

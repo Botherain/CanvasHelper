@@ -76,6 +76,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # 勾选同步的 canvas 课程 id
     "selected_courses": [],
     "categories": DEFAULT_CATEGORIES,
+    # 下载后的压缩包：内容包（讲义/代码）自动解压，数据包（ipynb 要读的
+    # 原始数据）原样保留。判定逻辑见 canvas_helper/extract.py。
+    "archives": {
+        "extract": True,
+        # 跳过 __MACOSX / ._ / .DS_Store 这类 macOS 解压垃圾
+        "skip_junk": True,
+        # 单包解压体积上限，超出即放弃（防 zip 炸弹）
+        "max_total_bytes": 2 * 1024 * 1024 * 1024,
+        # 包名命中这些词直接判为数据包、不解压；想解压改小这个词表
+        "data_name_hints": [
+            "data", "dataset", "datasets", "train", "test",
+            "validation", "labels", "mnist", "cifar", "imagenet", "audio",
+        ],
+    },
     "deskbox": {
         "enabled": True,
         # 留空 -> 启动时自动扫描 %LOCALAPPDATA%\DeskBox\data\widgets\*\todo.json

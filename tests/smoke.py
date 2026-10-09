@@ -1,4 +1,4 @@
-"""离线自检：分类规则、目录推断、待办合并、登录过期契约、打包元数据。
+"""离线自检：分类规则、目录推断、压缩包解压、讲义整理、待办合并、登录过期契约、打包元数据。
 
 两种入口共用同一套断言，因此不会出现「脚本绿、pytest 红」的分叉：
 
@@ -181,7 +181,7 @@ def s3_resolve(folders: dict) -> None:
     d5187 = match_folder("CS0001", folders)
     cats = CategoryDirs.scan(d5187)
     p = resolve_dir(cats, "course files/Lecture/Week3", "", "week3.pdf", "File")
-    check("Lecture 平铺", p == cats.get("lecture"), str(p))
+    check("讲义按章归组到 Week3", p.name == "Week3" and p.parent == cats.get("lecture"), str(p))
     p = resolve_dir(cats, "course files/Tutorial/Week2", "", "sol.pdf", "File")
     check("Tutorial 镜像到已有 Week2", p.name.lower() == "week2", str(p))
     p = resolve_dir(cats, "course files/Assignment1/CV_guideline/data/gallery", "", "0.jpg", "File")
@@ -210,11 +210,18 @@ def s3_resolve(folders: dict) -> None:
     d6382 = match_folder("CS0006", folders)
     cats4 = CategoryDirs.scan(d6382)
     p = resolve_dir(cats4, "course files/Lecture notes", "", "1. Review of Algorithms.pptx", "File")
-    check("CS0006 Lecture notes -> 讲义平铺", p == cats4.get("lecture"), str(p))
+    check("CS0006 纯数字开头 -> Lecture1", p.name == "Lecture1"
+          and p.parent == cats4.get("lecture"), str(p))
     p = resolve_dir(cats4, "course files", "", "Introduction.pptx", "File")
     check("CS0006 根目录 pptx -> 讲义", p == cats4.get("lecture"), str(p))
     p = resolve_dir(cats4, "course files", "", "Syllabus.pdf", "File")
     check("CS0006 根目录 syllabus -> 6.Others", p == cats4.get("other"), str(p))
+    p = resolve_dir(cats4, "", "", "jupyter-shortcuts.pdf", "File")
+    check("无编号讲义保持平铺", p == cats4.get("lecture"), str(p))
+    p = resolve_dir(cats4, "", "", "0.Introduction.pptx", "File")
+    check("第 0 章归到 Lecture0", p.name == "Lecture0", str(p))
+    p = resolve_dir(cats4, "", "Week 2", "slides for week.pdf", "File")
+    check("模块名里的 Week 编号生效", p.name == "Week2", str(p))
 
 
 def s4_sanitize() -> None:
@@ -425,15 +432,15 @@ def s6_plan() -> None:
     for n in names:
         print("        -", n)
     check("计划 5 项", len(plan.files) == 5, str(names))
-    check("课件平铺", "1.Lecture session/lecture2.pdf" in names, str(names))
+    check("课件按周归组到 Week2", "1.Lecture session/Week2/lecture2.pdf" in names, str(names))
     check("作业进已有子目录", "3.Assignments/Assignment_1/A1 handout.pdf" in names, str(names))
     check("未匹配进 6.Others", "6.Others/Rules.pdf" in names, str(names))
     check("项目进 4.Projects", "4.Projects/Dataset.zip" in names, str(names))
     check("页面加 html 后缀",
           any(n.endswith("Week 2 Overview.html") for n in names), str(names))
-    # 已存在同名 -> 改名
-    (tmpdir / "1.Lecture session").mkdir()
-    (tmpdir / "1.Lecture session" / "lecture2.pdf").write_bytes(b"x" * 999)
+    # 已存在同名（就压在计划的章节目录里）-> 改名
+    (tmpdir / "1.Lecture session" / "Week2").mkdir(parents=True)
+    (tmpdir / "1.Lecture session" / "Week2" / "lecture2.pdf").write_bytes(b"x" * 999)
     plan2 = build_plan(Course(id=9, name="Demo", code="CS9999"), tmpdir, items, {"files": {}})
     renamed = [p for p in plan2.files if p.action == "rename"]
     check("重名改名", len(renamed) == 1 and "(1)" in renamed[0].target.name,
@@ -497,7 +504,8 @@ def s6c_rename() -> None:
     check("但不忽略非数字括号",
           anchor_key("3. Online Algorithms (new).pptx") != anchor_key("3. Online Algorithms.pptx"))
     # 内容真的变了（大小不同且没有副本）-> 仍然要下载并改名
-    (tmp3 / "1.Lecture session" / "Lecture3.pptx").write_bytes(b"a" * 100)
+    (tmp3 / "1.Lecture session" / "Lecture3").mkdir()
+    (tmp3 / "1.Lecture session" / "Lecture3" / "Lecture3.pptx").write_bytes(b"a" * 100)
     item2 = Item(course_id=9, module_name="", title="Lecture3.pptx", kind="File",
                   file_id=122, file_name="Lecture3.pptx",
                   file_url="http://x/8", file_size=999,
@@ -686,6 +694,184 @@ def s9_packaging() -> None:
           'license = "MIT"' in pt and (ROOT / "LICENSE").is_file())
 
 
+def s10_extract() -> None:
+    import zipfile
+
+    from canvas_helper import extract
+
+    print("\n[10] 压缩包判定与解压（内容包解 / 数据包留 / 防 zip-slip）")
+    cfg = {"extract": True, "skip_junk": True,
+           "max_total_bytes": 2147483648,
+           "data_name_hints": ["data", "dataset", "train", "test"]}
+    tmp = Path(tempfile.mkdtemp(prefix="ch_zip_"))
+    lec = tmp / "1.Lecture session"
+    (lec / "Lecture3").mkdir(parents=True)
+    st: dict = {"archives": {}}
+
+    # 1) 内容包（含 ipynb + 图）：包名 == 所在目录名 -> 解到当前目录
+    z1 = lec / "Lecture3" / "Lecture3.zip"
+    with zipfile.ZipFile(z1, "w") as zf:
+        zf.writestr("Lecture3a.ipynb", "{}")
+        zf.writestr("imgs/pic.png", b"\x89PNG\r\n")
+        zf.writestr("__MACOSX/._Lecture3a.ipynb", b"junk")
+        zf.writestr(".DS_Store", b"j")
+    rec = extract.process(z1, st, cfg)
+    check("内容包判为解压", rec is not None and rec.kind == "extracted", repr(rec))
+    check("解到父目录（包名==目录名）", (lec / "Lecture3" / "Lecture3a.ipynb").is_file())
+    check("子目录保持", (lec / "Lecture3" / "imgs" / "pic.png").is_file())
+    check("跳过 macOS 垃圾", not (lec / "Lecture3" / "__MACOSX").exists()
+          and not (lec / "Lecture3" / ".DS_Store").exists(), str(list(lec.rglob("*"))[:6]))
+    check("压缩包保留", z1.is_file())
+
+    # 2) 幂等：state 记过 -> 再跑不解第二次（删掉解出的文件也不会被还原）
+    (lec / "Lecture3" / "Lecture3a.ipynb").unlink()
+    rec2 = extract.process(z1, st, cfg)
+    check("已处理的包不再重复解压",
+          rec2 is not None and not rec2.changed
+          and not (lec / "Lecture3" / "Lecture3a.ipynb").exists(), repr(rec2))
+
+    # 3) 换一份干净 state -> 重新解压，但同名同大小的条目跳过、不覆盖
+    rec3 = extract.process(z1, {"archives": {}}, cfg)
+    check("state 才是幂等依据、磁盘同名同大小不覆盖",
+          rec3 is not None and rec3.kind == "extracted"
+          and (lec / "Lecture3" / "Lecture3a.ipynb").is_file(), repr(rec3))
+
+    # 4) 包名命中数据关键词 -> 不解压（ipynb 要读的原始数据）
+    z2 = lec / "data.zip"
+    with zipfile.ZipFile(z2, "w") as zf:
+        zf.writestr("iris2.csv", "a,b\n1,2\n")
+    rec4 = extract.process(z2, st, cfg)
+    check("数据包不解压", rec4 is not None and rec4.kind == "data", repr(rec4))
+    check("数据没有铺开", not (lec / "iris2.csv").exists()
+          and not (lec / "data").exists())
+
+    # 5) 构成判定：全是 csv、没有代码 -> 数据包
+    z3 = lec / "week4.zip"
+    with zipfile.ZipFile(z3, "w") as zf:
+        for i in range(5):
+            zf.writestr(f"t{i}.csv", "x,y\n1,2\n")
+    rec5 = extract.process(z3, st, cfg)
+    check("纯数据构成判为数据包", rec5 is not None and rec5.kind == "data", repr(rec5))
+    check("week4 目录未产生", not (lec / "week4").exists())
+
+    # 6) 名称关键词优先于构成：数据集名字 + 里头有 notebook 也不解
+    z4 = lec / "dataset.zip"
+    with zipfile.ZipFile(z4, "w") as zf:
+        zf.writestr("nb.ipynb", "{}")
+    rec6 = extract.process(z4, st, cfg)
+    check("包名关键词压过构成", rec6 is not None and rec6.kind == "data", repr(rec6))
+
+    # 6b/6c) 真实误判回归：README.md 与装机脚本 .sh 都不算内容信号
+    # （本机 4.Projects/Dataset/archive.zip、MTNT.1.1.tar.gz 就是这么误判的）
+    z4b = lec / "bundle.zip"
+    with zipfile.ZipFile(z4b, "w") as zf:
+        zf.writestr("README.md", "# 数据说明")
+        zf.writestr("train.csv", "x,y\n1,2\n")
+        zf.writestr("test.csv", "x,y\n1,2\n")
+    rec6b = extract.process(z4b, st, cfg)
+    check("README.md 不算内容信号", rec6b is not None and rec6b.kind == "data",
+          repr(rec6b))
+    z4c = lec / "corpus.zip"
+    with zipfile.ZipFile(z4c, "w") as zf:
+        zf.writestr("setup.sh", "echo hi")
+        zf.writestr("corpus.tsv", "a\tb\n")
+    rec6c = extract.process(z4c, st, cfg)
+    check("装机脚本 .sh 不算内容信号", rec6c is not None and rec6c.kind == "data",
+          repr(rec6c))
+
+    # 7) zip-slip：../ 越界路径必须被拒绝（内容包得带代码/讲义后缀才会被解）
+    z5 = lec / "safe.zip"
+    with zipfile.ZipFile(z5, "w") as zf:
+        zf.writestr("../evil.txt", "boom")
+        zf.writestr("ok.md", "fine")
+    rec7 = extract.process(z5, st, cfg)
+    check("正常条目照常解出", (lec / "safe" / "ok.md").is_file(), repr(rec7))
+    check("拒绝 zip-slip 越界", not (lec / "evil.txt").exists()
+          and not (tmp / "evil.txt").exists())
+
+    # 8) 不支持的格式：如实标注，不报错
+    rar = lec / "tool.rar"
+    rar.write_bytes(b"Rar!\x1a\x07\x00")
+    rec8 = extract.process(rar, st, cfg)
+    check("rar 标注为不支持", rec8 is not None and rec8.kind == "unsupported", repr(rec8))
+
+    # 9) 配置关掉 -> 完全不碰
+    off = dict(cfg, extract=False)
+    z6 = lec / "Lecture7.zip"
+    with zipfile.ZipFile(z6, "w") as zf:
+        zf.writestr("nb.ipynb", "{}")
+    check("配置关闭时不处理", extract.process(z6, st, off) is None
+          and not (lec / "Lecture7").exists())
+
+    # 10) 非压缩包 / 预览文案
+    check("非压缩包直接返回", extract.process(lec / "a.pdf", st, cfg) is None)
+    check("预览标注数据包", "数据包" in extract.plan_note(z2, st, cfg),
+          extract.plan_note(z2, st, cfg))
+    check("预览标注已解压", "已解压" in extract.plan_note(z1, st, cfg),
+          extract.plan_note(z1, st, cfg))
+    check("未下载的包标注待判定", "下载后" in extract.plan_note(lec / "Lecture6.zip", st, cfg))
+    check("非压缩包无标注", extract.plan_note(lec / "a.pdf", st, cfg) == "")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def s11_tidy() -> None:
+    from canvas_helper import tidy
+
+    print("\n[11] 讲义整理：先预览再移动（只移动不删除）")
+    tmp = Path(tempfile.mkdtemp(prefix="ch_tidy_"))
+    course = tmp / "CS0003 - Machine Learning"
+    lec = course / "1.Lecture session"
+    (lec / "Lecture3").mkdir(parents=True)
+    (lec / "Lecture3a.pdf").write_bytes(b"a" * 10)
+    (lec / "Lecture3.zip").write_bytes(b"z" * 20)
+    (lec / "data.zip").write_bytes(b"d" * 5)
+    (lec / "jupyter-shortcuts.pdf").write_bytes(b"j" * 7)
+    # 目标章节目录里已有同名但不同大小 -> 移动时改名
+    (lec / "Lecture3" / "Lecture3a.pdf").write_bytes(b"b" * 3)
+
+    plan = tidy.plan_course(course)
+    moves = {m.src.name: m for m in plan.moves}
+    txt = tidy.render([plan])
+    print(txt)
+    check("只动有章节号的文件", set(moves) == {"Lecture3a.pdf", "Lecture3.zip"},
+          str(set(moves)))
+    check("无编号散件保持原样",
+          "data.zip" not in moves and "jupyter-shortcuts.pdf" not in moves)
+    check("同名不同大小 -> 改名移动",
+          moves["Lecture3a.pdf"].dest.name == "Lecture3a (1).pdf",
+          moves["Lecture3a.pdf"].dest.name)
+    check("zip 归入同名章节目录",
+          moves["Lecture3.zip"].dest.parent.name == "Lecture3",
+          str(moves["Lecture3.zip"].dest))
+    check("预览文案列出去向", "Lecture3" in txt and "合计" in txt, txt[:160])
+
+    state = {"files": {"file:9:x": {"path": str(lec / "Lecture3a.pdf"), "size": 10}},
+             "archives": {str(lec / "Lecture3.zip"): {"kind": "extracted", "size": 20}}}
+    rep = tidy.apply_plans([plan], state)
+    check("移动 2 个、零失败", rep == {"moved": 2, "skipped": 0, "errors": 0}, str(rep))
+    check("文件真的搬进章节目录",
+          (lec / "Lecture3" / "Lecture3.zip").is_file()
+          and not (lec / "Lecture3.zip").exists()
+          and (lec / "Lecture3" / "Lecture3a (1).pdf").is_file())
+    check("state 路径跟着回写（含改名后的去向）",
+          state["files"]["file:9:x"]["path"]
+          == str(lec / "Lecture3" / "Lecture3a (1).pdf"),
+          state["files"]["file:9:x"]["path"])
+    check("解压记录键随迁移",
+          str(lec / "Lecture3" / "Lecture3.zip") in state["archives"]
+          and str(lec / "Lecture3.zip") not in state["archives"])
+    check("原地不动的文件还在",
+          (lec / "data.zip").is_file() and (lec / "jupyter-shortcuts.pdf").is_file())
+    again = tidy.plan_course(course)
+    check("整理后无残留待移动", again.todo == [], str(again.moves))
+    check("无可整理时给明确文案",
+          tidy.render([again]) == "没有需要整理的讲义文件：各章内容都已在章节目录里。",
+          tidy.render([again]))
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 # --------------------------------------------------------------------------- #
 # 脚本入口
 # --------------------------------------------------------------------------- #
@@ -708,6 +894,8 @@ def main() -> int:
     s7_extras(c, res.drafts)
     s8_auth()
     s9_packaging()
+    s10_extract()
+    s11_tidy()
 
     if fixture_root is not None:
         shutil.rmtree(fixture_root, ignore_errors=True)
