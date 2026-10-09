@@ -166,7 +166,12 @@ def _is_junk(member: str, cfg: dict) -> bool:
 
 
 def _safe_join(base: Path, member: str) -> Path | None:
-    """zip-slip 防护：绝对路径 / ``..`` / 盘符一律拒绝，越界返回 None。"""
+    """zip-slip 防护：绝对路径 / ``..`` / 盘符一律拒绝，越界返回 None。
+
+    两边都 resolve 之后再比较：resolve 会展开 8.3 短路径（CI runner 的
+    ``RUNNER~1``），拿展开后的成员路径和未展开的 base 比，会把正常文件
+    全部误判成越界。
+    """
     name = (member or "").replace("\\", "/")
     if not name or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
         return None
@@ -174,8 +179,8 @@ def _safe_join(base: Path, member: str) -> Path | None:
     if any(p == ".." for p in parts):
         return None
     out = base.joinpath(*parts)
-    try:  # 双保险：解析后必须仍落在目标目录内
-        out.resolve().relative_to(base)
+    try:  # 双保险：两边都 resolve 后必须仍落在目标目录内
+        out.resolve().relative_to(base.resolve())
     except (ValueError, OSError):
         return None
     return out
@@ -195,12 +200,13 @@ def _extract_zip(path: Path, dest: Path, cfg: dict) -> tuple[int, int]:
     written = skipped = 0
     total = 0
     dest.mkdir(parents=True, exist_ok=True)
+    base = dest.resolve()  # 8.3 短路径（RUNNER~1）展开，成员安全检查同尺度比较
     with zipfile.ZipFile(path) as zf:
         for info in zf.infolist():
             if info.is_dir() or _is_junk(info.filename, cfg):
                 skipped += 1
                 continue
-            out = _safe_join(dest, info.filename)
+            out = _safe_join(base, info.filename)
             if out is None:
                 skipped += 1
                 log.warning("拒绝越界路径 %s（zip-slip）", info.filename)
@@ -225,13 +231,14 @@ def _extract_tar(path: Path, dest: Path, cfg: dict) -> tuple[int, int]:
     written = skipped = 0
     total = 0
     dest.mkdir(parents=True, exist_ok=True)
+    base = dest.resolve()  # 同 _extract_zip：短路径展开后再做越界比较
     with tarfile.open(path, "r:*") as tf:
         for m in tf.getmembers():
             # 链接/设备/目录一律不解：符号链接能把写入引到目录之外
             if not m.isfile() or _is_junk(m.name, cfg):
                 skipped += 1
                 continue
-            out = _safe_join(dest, m.name)
+            out = _safe_join(base, m.name)
             if out is None:
                 skipped += 1
                 log.warning("拒绝越界路径 %s（tar-slip）", m.name)

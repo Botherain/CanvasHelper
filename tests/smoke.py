@@ -724,7 +724,7 @@ def s10_extract() -> None:
     check("压缩包保留", z1.is_file())
 
     # 2) 幂等：state 记过 -> 再跑不解第二次（删掉解出的文件也不会被还原）
-    (lec / "Lecture3" / "Lecture3a.ipynb").unlink()
+    (lec / "Lecture3" / "Lecture3a.ipynb").unlink(missing_ok=True)
     rec2 = extract.process(z1, st, cfg)
     check("已处理的包不再重复解压",
           rec2 is not None and not rec2.changed
