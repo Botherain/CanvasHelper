@@ -4,7 +4,7 @@
 
 访问你学校的 Canvas（LMS），读取课程内容与通知，按你已有的目录规则归档到
 `<课程根目录>\<课程>\`，并把 tutorial / assignment / project 的截止时间
-自动写入 **DeskBox 待办**。
+自动写入 **[DeskBox](https://github.com/Tianyu199509/DeskBox) 待办**。
 
 > 本工具面向**个人学习用途**，请勿用于批量抓取或再分发课程内容。
 > 与 Instructure / Canvas 及你所在院校无任何关联。见文末 [许可与免责](#许可与免责)。
@@ -33,35 +33,68 @@
 
 ## 快速开始
 
-```powershell
-# 1. 安装（可编辑安装；Playwright 用系统 Edge，不用另下浏览器）
-pip install -e .
+四步从零到可用，照抄即可（前置条件：Windows 10/11、Python 3.11+；浏览器用系统
+自带的 Edge——Playwright 直接驱动它，**不用另下浏览器**）。
 
-# 2. 启动图形界面
-canvas-helper            # 安装后的命令行入口
-# 或（在源码目录里）
-.\启动Canvas助手.bat
-# 或
-python -m canvas_helper
+### ① 取得项目文件
+
+```powershell
+git clone https://github.com/Botherain/CanvasHelper.git
+cd CanvasHelper
 ```
 
-**桌面快捷方式**（显示名 `CanvasHelper`，带上图那个图标；直接以 `pythonw` 启动
-GUI，**全程没有控制台**，点开即用；`.bat` 本身无法承载图标，且双击时 Windows 必先
-给它一个控制台，所以快捷方式不走 `.bat`）：
+没有 git 也行：仓库页面 → **Code → Download ZIP**，解压后进入该目录。
+
+### ② 环境配置（装依赖）
+
+```powershell
+py -3 -m pip install -e .        # 没有 py 启动器就写 python -m pip install -e .
+```
+
+运行时依赖只有 `playwright` 与 `tzdata`，pip 会一并装好。要跑自检 / 静态检查再补
+一句 `py -3 -m pip install -e ".[dev]"`（pytest / ruff / mypy / Pillow）。
+
+### ③ 首次启动（自动生成配置与数据目录）
+
+```powershell
+canvas-helper              # 安装后的命令行入口
+# 或（在源码目录里）
+python -m canvas_helper
+# 或
+.\启动Canvas助手.bat
+```
+
+**不需要手写任何配置**，首次运行会创建：
+
+| 生成的文件 | 作用 |
+| --- | --- |
+| `%LOCALAPPDATA%\CanvasHelper\config.json` | 配置（课程根目录、DeskBox 路径），设置页可改 |
+| `%LOCALAPPDATA%\CanvasHelper\state.json` | 同步状态：已下载文件、已读通知、已完成待办 |
+| `%LOCALAPPDATA%\CanvasHelper\sync.log` | 运行日志 |
+| `%LOCALAPPDATA%\CanvasHelper\session.json` + `profile\` | 登录态，详见 [安全与隐私](#安全与隐私) |
+
+同时弹出 Edge 登录窗口，完成学校 SSO / 2FA 即可；之后长期免登录，掉线时会自动
+重新弹窗。
+
+### ④ 桌面快捷方式（带图标、全程无控制台）
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make_shortcut.ps1
 ```
 
+生成的快捷方式显示名 `CanvasHelper`、挂上应用图标，直接以 `pythonw` 启动 GUI。
+`.bat` 本身无法承载图标，且双击时 Windows 必先给它一个控制台（约 0.2 秒黑框），
+所以快捷方式不走 `.bat`。
+
 装好之后还有两个小命令：
 
 ```powershell
-canvas-helper --version      # 版本号
-canvas-helper sync --headless   # 后台同步（计划任务用的就是它）
+canvas-helper --version          # 版本号
+canvas-helper sync --headless    # 后台同步（计划任务用的就是它）
 ```
 
-**首次运行**会打开 Edge 登录窗口，完成学校 SSO / 2FA 即可；登录态保存在
-`%LOCALAPPDATA%\CanvasHelper\profile`，之后长期免登录，掉线时会自动重新弹窗。
+> 想让它每天自动跑：**设置** 页勾选「启用每日自动同步」并点「保存设置」，
+> 之后每天后台同步一次（无窗口，用已保存的登录态）。
 
 ### 首次配置
 
@@ -95,13 +128,55 @@ canvas-helper sync --headless   # 后台同步（计划任务用的就是它）
 
 从旧版本（数据放在源码目录）升级时会**自动搬一次**，原文件保留作备份。
 
-## 使用流程
+## 基础教程：它能做什么、怎么用
 
-1. 点 **登录 / 刷新课程** → 课程列表出现，自动匹配本地文件夹并预勾选。
-2. 点 **预览归档方案** → 看到每个文件将落到哪个目录（只读，不写盘）。
-3. 点 **开始同步** → 下载 + 归档 + 写待办 + 更新成绩 + 导出日历。
-4. **待办** 页可单独读取截止时间、写入 DeskBox、导出 `.ics`。
-5. **设置** 页可修改目录、DeskBox 路径、后台策略，并注册计划任务。
+一句话：**替你把 Canvas 上的课件按既有目录规则归档到本地，把各课截止时间变成
+桌面上的待办**。它接手四件日常麻烦事：
+
+| 以前的做法 | 用本工具之后 |
+| --- | --- |
+| 一门课点进 Files 下载讲义 / 作业，再手动分文件夹 | 勾选课程 → **开始同步**，自动归档到 `1.Lecture session` … `6.Others`，本地已有的跳过 |
+| 截止时间散在各课作业页 / 公告里，容易漏 | 同步时统一写进 **DeskBox 待办**（附 Canvas 原链接），或导出 `.ics` 进 Windows / 手机日历 |
+| 想知道这周该干什么、考了多少分 | 通知 / 公告、成绩聚合在一页看；每周生成 `本周摘要-YYYY-Wnn.md` |
+| 每天手动重复一遍 | 注册计划任务，每天后台同步一次（无窗口） |
+
+**第一次上手，照着点六下**：
+
+1. **登录** —— 点 **登录 / 刷新课程** → 弹出 Edge，完成学校 SSO / 2FA。
+   课程列表出现后会自动匹配本地文件夹并预勾选。
+2. **确认课程根目录** —— 设置页看 `classes_root`（默认 `<用户目录>\CanvasCourses`），
+   不是你的目录就点 **浏览…** 改。
+3. **先预览再动手** —— 点 **预览归档方案**，只读地列出每个文件将落到哪个目录，**不写盘**。
+4. **同步一次** —— 点 **开始同步**：下载 + 归档 + 写待办 + 更新成绩 + 导出日历。
+5. **看截止与通知** —— **待办** 页可单独读取截止时间、写入 DeskBox、导出 `.ics`
+   （含提前 1 天提醒）；**通知 / 公告**、**成绩** 在另外两个标签。
+6. **交给它自动跑** —— 设置页勾选 **启用每日自动同步** → 点 **保存设置**
+   （同时注册计划任务），之后每天后台同步；登录过期会弹窗自愈，见
+   [登录失效时会怎样](#登录失效时会怎样)。
+
+按需再查这些章节：[归档规则](#归档规则)、
+[DeskBox 待办写入策略](#deskbox-待办写入策略)、[一键清理缓存](#一键清理缓存)、
+[命令行](#命令行)。
+
+## 安全与隐私
+
+- **联网范围很窄**：只访问你学校的 Canvas 站点与完成登录所需的 SSO 域名
+  （本校实测为 `canvas.example.edu` / `auth.example.edu` / `sso.canvaslms.com`），
+  **不连任何第三方服务器**；无遥测、无统计、无任何数据上报。
+- **数据只在本机**：配置、同步状态、日志、登录态全在 `%LOCALAPPDATA%\CanvasHelper\`
+  （见 [数据目录](#数据目录)），课程文件落在你自己的课程根目录。
+  这些目录都在仓库之外；`config.json` / `state.json` / `sync.log` 等可再生文件
+  以及 `session.json` / `profile\` 还额外进了 `.gitignore`，双保险不会被提交。
+- **登录态 = 凭据**：学校 Cookie 存在 `session.json` 与浏览器 `profile\` 目录，
+  **不要发给别人、不要连同打包分享**；`canvas-helper clean --login` 可连登录态一起清掉。
+- **日志不记凭据内容**：`sync.log` 只记录 cookie 条数与出错信息，不写 cookie /
+  密码的值；不想留痕就用设置页「一键清理缓存」把日志一并清掉。
+- **通知正文不落盘**：通知内容只在内存里、打开时现拉一次，`state.json` 只留已读标记。
+- **动 DeskBox 数据前先备份**：写 `todo.json` 前自动备份为 `todo.json.pre-canvas`，
+  只增不删、不碰你手写的条目（见 [已完成作业的处理](#已完成作业的处理)）。
+- **可审计**：本项目以 MIT 开源，代码就在本仓库，以上每条都能在源码里核对。
+- 风险自负：请遵守所在院校的可接受使用政策与 Canvas / Instructure 的服务条款，
+  见 [许可与免责](#许可与免责)。
 
 ## 命令行
 
@@ -173,6 +248,24 @@ python -m canvas_helper clean --login      # 连登录态一起清（之后需�
   Canvas 的 `1. Review of Algorithms.pptx` 能对上本地 `1.Review of Algorithms.pptx`、
   `0.Introduction.pptx` 能对上 `Introduction.pptx`；纯数字名（`0.jpg` / `1.npy`）不会被误判。
 - 只增不删：同名同大小跳过，同名不同大小自动加 `(1)` 后缀。
+
+## 关于 DeskBox
+
+[DeskBox](https://github.com/Tianyu199509/DeskBox)（官网 [deskbox.fun](https://deskbox.fun)）
+是一个**免费开源的 Windows 桌面整理工具**：用 WinUI 3 原生质感的小组件把桌面文件
+收进格子，自带待办、随记、桌面搜索等能力，数据全部保存在本机，支持 Windows 10/11
+的 x64 与 ARM64，GPL-3.0 协议。
+
+本工具与它的关系：
+
+- CanvasHelper 解析出 Canvas 的截止时间后，**写进你电脑上 DeskBox 的「待办」小组件**
+  （数据文件 `todo.json`），课业安排因此直接出现在桌面上；写入规则见
+  [DeskBox 待办写入策略](#deskbox-待办写入策略)。
+- 两者是**各自独立的项目**：CanvasHelper 不是 DeskBox 的一部分，未获其作者背书；
+  本仓库只按对方公开的数据文件格式读写，不包含 DeskBox 的任何代码。
+- **没装 DeskBox 也不影响使用**：`deskbox.todo_path` 为空时同步会自动跳过待办写入，
+  课程归档、通知、成绩、日历等照常；想要提醒可以改用 `.ics` 导出。
+  装了 DeskBox 后路径会被自动发现，猜错了在设置页「浏览…」里手选。
 
 ## DeskBox 待办写入策略
 

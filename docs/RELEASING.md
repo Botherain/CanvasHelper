@@ -38,6 +38,7 @@ CI（`lint` + `smoke` × Python 3.11/3.12/3.13/3.14）全绿后才能发。
 | `canvas_helper/classify.py` | 约 79 / 180 行 | 示例里的课程号 `CS0001` 之类 |
 | `canvas_helper/canvas_api.py` | 约 331 / 332 行 | 注释里举的课程号 |
 | `tests/smoke.py`、`tests/test_canvas_api.py` | fixture 与断言 | `10001` / `10003` / `10005` 一类的课程 id、`CS0003` 等 |
+| **`README.md`** | 「快速开始」「安全与隐私」两节 | clone 地址、以及 `canvas.example.edu` / `auth.example.edu` / `sso.canvaslms.com` 三个本校域名 |
 | **`docs/screenshots/gui-main.png`** | 整张图 | 截图里有课程号与通知标题 |
 
 > ⚠️ **截图无法文本替换**。转公开前请**重新截一张干净的**

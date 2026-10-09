@@ -20,3 +20,8 @@ dist/
 *.spec
 # 快捷方式带本机绝对路径，只入库生成脚本 scripts/make_shortcut.ps1
 *.lnk
+
+# 登录凭据正常存放在 %LOCALAPPDATA%（仓库之外），这里只是兜底：
+# 万一有人把 session.json / 浏览器 profile 拷进源码目录，也不会被提交
+session.json
+profile/
