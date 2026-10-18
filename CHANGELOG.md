@@ -7,6 +7,33 @@
 
 ## [未发布]
 
+### 新增 · 讨论区 Colab/GitHub 链接与帖子快照
+
+- **教程不再手动另存**：CS0004 的 tutorial 以 Colab 链接发在讨论区，现在会直接
+  下载成 `.ipynb`。实测两种链接形态都支持：
+  * **Drive 型**（CS0004 week2-7 全是这种）`colab.research.google.com/drive/{文档id}`
+    → 转 `drive.google.com/uc?export=download` 直链，公开分享可匿名下载；链接
+    本身不带文件名，用帖子标题命名（`Colab sharing for week7.ipynb`），同一帖里
+    多条无名链接自动加 `-2` 序号避免互相覆盖；
+  * **GitHub 型** `colab.research.google.com/github/.../blob/...` 与
+    `github.com/.../blob/...` → 转 `raw.githubusercontent.com` 直链，任意文件
+    类型都抓；同链接去重、`?usp=sharing` 这类 query 剥掉；私有仓库 404 按普通
+    下载失败容错。
+- **列表接口不给正文也拦不住**：`discussion_topics` 列表接口实测 7/7 个
+  `message` 为空，正文要靠 show 接口补——链接抽取与快照都用这份正文；
+  正文里没链接时才去翻回帖（省 API 调用），嵌套 replies 也扫。
+- **帖子本身存 HTML 快照**（新增 `discussions` 配置段 + 设置页「保存讨论区内容」
+  勾选，一键启停快照与链接下载）：含帖子正文与「打开原文」链接，是私有链接下
+  不了时的兜底；公告只扫链接不快照（通知渠道已聚合）。按帖标题分类落盘
+  （`Colab sharing for week7` → `2.Tutorial session` 平铺，`colab` 已加入 tutorial
+  关键词）；幂等键 = 课程 + topic id，重复同步不重存。
+- 真实库落地验证：CS0004 拉回 8 个笔记本（20.5 MB）+ 7 个快照，另 5 门课的
+  讨论区 Q&A（组队、迟交询问等）存了 10 个快照，零错误。
+- 新增 `CanvasAPI._link_targets` / `discussion_entries`；离线自检新增第 [12] 小节
+  （链接解析、按帖标题分类、快照落盘含正文、二次同步幂等），`tests/test_canvas_api.py`
+  新增 6 例（colab 转直链、懒拉回帖、公告只扫链接、解析边界、show 补正文、
+  Drive 型命名），smoke 断言 165 → 180、pytest 用例 27 → 34。
+
 ### 新增 · 讲义按章归档与压缩包自动解压
 
 - **讲义不再平铺**：识别到章节号就归进 `1.Lecture session/Lecture3/`。编号优先级为

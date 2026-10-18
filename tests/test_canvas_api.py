@@ -12,10 +12,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import canvas_helper.canvas_api as canvas_api_mod  # noqa: E402
 from canvas_helper.canvas_api import CanvasAPI  # noqa: E402
 
 BASE = "https://canvas.example"
@@ -236,3 +239,165 @@ def test_文件id正则只认课程正文里的链接不认API地址():
     assert got == [111, 222], f"got={got}"
     assert CanvasAPI._file_ids_from("") == []
     assert CanvasAPI._file_ids_from(None) == []
+
+
+# --------------------------------------------------------------------------- #
+# 讨论区：Colab / GitHub 链接（CS0004 的 tutorial 就是这么发的）
+# --------------------------------------------------------------------------- #
+_COLAB_MSG = (
+    'this week tutorial: <a href="https://colab.research.google.com/github/'
+    'prof/cs5494/blob/main/cs5494_tutorial_1_MNIST.ipynb?usp=sharing">colab</a>'
+)
+
+
+@pytest.fixture
+def discussions_on(monkeypatch):
+    """锁死配置：讨论区功能开，不依赖机器上的 config.json。"""
+    monkeypatch.setattr(
+        canvas_api_mod, "cfg_discussions",
+        lambda cfg=None: {"links": True, "snapshot": True},
+    )
+
+
+def _routes_with_topics(cid: int, topics: list) -> dict:
+    return {
+        f"/api/v1/courses/{cid}/folders": [],
+        f"/api/v1/courses/{cid}/files": _Resp(403, text="forbidden"),
+        f"/api/v1/courses/{cid}/modules": [],
+        f"/api/v1/courses/{cid}/assignments": [],
+        f"/api/v1/courses/{cid}/discussion_topics": topics,
+    }
+
+
+def test_讨论区Colab链接转成raw直链下载条目(discussions_on) -> None:
+    cid = 70594
+    routes = _routes_with_topics(cid, [
+        {"id": 71, "title": "Week 1 Tutorial", "message": _COLAB_MSG,
+         "html_url": f"{BASE}/courses/{cid}/discussion_topics/71"},
+    ])
+    api, sess = _api(routes)
+
+    items, _ = api.collect_items(cid)
+
+    links = [i for i in items
+             if i.kind == "File" and i.extra.get("link_source") == "discussion"]
+    assert [i.title for i in links] == ["cs5494_tutorial_1_MNIST.ipynb"]
+    assert links[0].file_url == (
+        "https://raw.githubusercontent.com/prof/cs5494/main/"
+        "cs5494_tutorial_1_MNIST.ipynb"), "colab 链接要转成 raw 直链"
+    assert links[0].module_name == "Week 1 Tutorial", "帖子标题要参与分类"
+    # 正文里已经有链接 -> 不该再额外请求回帖
+    assert not any(p.endswith("/entries") for p in sess.calls)
+    snaps = [i for i in items if i.kind == "Discussion"]
+    assert len(snaps) == 1, "帖子本身要入列快照条目"
+    assert snaps[0].title == "Week 1 Tutorial"
+    assert snaps[0].extra["message"] == _COLAB_MSG
+    assert snaps[0].file_id == 71, "快照用 topic id 做幂等键"
+
+
+def test_正文没链接时才去回帖里翻(discussions_on) -> None:
+    cid = 70595
+    routes = _routes_with_topics(cid, [
+        {"id": 81, "title": "Week 2 Tutorial", "message": "see replies"},
+    ])
+    routes[f"/api/v1/courses/{cid}/discussion_topics/81/entries"] = [
+        {"message": "slides /courses/70595/files/555",
+         "replies": [
+             {"message": '<a href="https://github.com/prof/cs5495/blob/main/'
+                         'tut2.ipynb">nb</a>'},
+         ]},
+    ]
+    routes["/api/v1/files/555"] = {
+        "id": 555, "filename": "week2.pdf", "size": 3,
+    }
+    api, sess = _api(routes)
+
+    items, _ = api.collect_items(cid)
+
+    assert 555 in [i.file_id for i in items if i.kind == "File"], \
+        "回帖里的 Canvas 文件也要收"
+    links = [i for i in items if i.extra.get("link_source") == "discussion"]
+    assert [i.file_url for i in links] == [
+        "https://raw.githubusercontent.com/prof/cs5495/main/tut2.ipynb"], \
+        "嵌套 replies 里的链接也要收"
+    assert any(p.endswith("/discussion_topics/81/entries") for p in sess.calls)
+
+
+def test_公告只扫链接不出快照(discussions_on) -> None:
+    cid = 70593
+    routes = _routes_with_topics(cid, [
+        {"id": 91, "title": "Tutorial 3 posted", "is_announcement": True,
+         "message": _COLAB_MSG},
+    ])
+    api, sess = _api(routes)
+
+    items, _ = api.collect_items(cid)
+
+    assert any(i.extra.get("link_source") == "discussion" for i in items), \
+        "公告里的链接照样收"
+    assert not any(i.kind == "Discussion" for i in items), "公告不再存快照"
+    assert not any(p.endswith("/entries") for p in sess.calls), "公告不去翻回帖"
+
+
+def test_链接解析边界() -> None:
+    got = CanvasAPI._link_targets(
+        "https://github.com/a/b/blob/main/x.ipynb?plain=1#L2 "
+        "https://raw.githubusercontent.com/a/b/main/data.pdf "
+        "https://github.com/a/b/blob/main/x.ipynb "
+        "https://github.com/a/b/issues/1 "
+        "https://colab.research.google.com/drive/1abcDEF_-2345678901234567890"
+    )
+    assert got == [
+        ("https://raw.githubusercontent.com/a/b/main/x.ipynb", "x.ipynb"),
+        ("https://raw.githubusercontent.com/a/b/main/data.pdf", "data.pdf"),
+        ("https://drive.google.com/uc?export=download&id=1abcDEF_-2345678901234567890", ""),
+    ], f"got={got}"
+    assert CanvasAPI._link_targets("") == []
+    assert CanvasAPI._link_targets(None) == []
+
+
+def test_列表不带正文时补show接口(discussions_on) -> None:
+    cid = 70592
+    routes = _routes_with_topics(cid, [
+        {"id": 61, "title": "Week 3 Tutorial", "message": ""},
+    ])
+    routes[f"/api/v1/courses/{cid}/discussion_topics/61"] = {
+        "id": 61,
+        "message": '<a href="https://github.com/prof/cs5494/blob/main/t3.ipynb">x</a>',
+    }
+    api, sess = _api(routes)
+
+    items, _ = api.collect_items(cid)
+
+    links = [i for i in items if i.extra.get("link_source") == "discussion"]
+    assert [i.file_url for i in links] == [
+        "https://raw.githubusercontent.com/prof/cs5494/main/t3.ipynb"], \
+        "列表 message 为空时要补 show 接口取正文（CS0004 实测 7/7 个都是空）"
+    assert any(p.endswith(f"/api/v1/courses/{cid}/discussion_topics/61") for p in sess.calls)
+    snaps = [i for i in items if i.kind == "Discussion"]
+    assert snaps and "t3.ipynb" in snaps[0].extra["message"], \
+        "快照正文也要用 show 补的"
+
+
+def test_colab_drive链接转下载直链并用帖子标题命名(discussions_on) -> None:
+    cid = 10002
+    routes = _routes_with_topics(cid, [
+        {"id": 72, "title": "Colab sharing for week7",
+         "message": "<p>https://colab.research.google.com/drive/"
+                    "1-CNfyNMUbrML8sXFCYPt3JBq9QGrVbTa?usp=sharing "
+                    "https://colab.research.google.com/drive/"
+                    "1m2yskhCVehbvP0u_Icstwr-M2MEZ8s5L</p>"},
+    ])
+    api, _ = _api(routes)
+
+    items, _ = api.collect_items(cid)
+
+    links = [i for i in items if i.extra.get("link_source") == "discussion"]
+    assert [i.file_url for i in links] == [
+        "https://drive.google.com/uc?export=download&id=1-CNfyNMUbrML8sXFCYPt3JBq9QGrVbTa",
+        "https://drive.google.com/uc?export=download&id=1m2yskhCVehbvP0u_Icstwr-M2MEZ8s5L",
+    ]
+    assert [i.title for i in links] == [
+        "Colab sharing for week7.ipynb",
+        "Colab sharing for week7-2.ipynb"], "同帖多条无名链接 -> 序号避免互相覆盖"
+    assert links[0].module_name == "Colab sharing for week7"

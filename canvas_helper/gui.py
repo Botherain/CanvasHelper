@@ -306,6 +306,8 @@ class App(tk.Tk):
         self.var_grades = tk.BooleanVar(value=self.cfg["extras"]["grades"])
         self.var_notices = tk.BooleanVar(value=self.cfg["extras"]["notices"])
         self.var_extract = tk.BooleanVar(value=(self.cfg.get("archives") or {}).get("extract", True))
+        self.var_discuss = tk.BooleanVar(
+            value=(self.cfg.get("discussions") or {}).get("links", True))
         self.var_policy = tk.StringVar(value=self.cfg["deskbox"]["background_policy"])
         self.var_sched = tk.BooleanVar(value=self.cfg["schedule"]["enabled"])
         self.var_synctime = tk.StringVar(value=self.cfg["schedule"]["sync_time"])
@@ -335,29 +337,32 @@ class App(tk.Tk):
         ttk.Checkbutton(
             tab, text="下载后自动解压压缩包（内容包解压，数据包原样保留）",
             variable=self.var_extract).grid(row=8, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(
+            tab, text="保存讨论区内容（帖子存快照，Colab/GitHub 链接文件直接下载）",
+            variable=self.var_discuss).grid(row=9, column=0, columnspan=3, sticky="w")
 
         ttk.Label(tab, text="后台（计划任务）同步时 DeskBox 待办处理方式",
-                  style="Header.TLabel").grid(row=9, column=0, sticky="w", pady=(14, 4))
+                  style="Header.TLabel").grid(row=10, column=0, sticky="w", pady=(14, 4))
         for i, (val, text) in enumerate((
             ("queue", "排队：不打扰 DeskBox，下次打开本程序时写入（推荐）"),
             ("restart", "立即重启 DeskBox 完成写入"),
             ("skip", "跳过：后台同步不写待办"),
         )):
             ttk.Radiobutton(tab, text=text, value=val, variable=self.var_policy).grid(
-                row=10 + i, column=0, columnspan=3, sticky="w")
+                row=11 + i, column=0, columnspan=3, sticky="w")
 
         ttk.Label(tab, text="计划任务", style="Header.TLabel").grid(
-            row=13, column=0, sticky="w", pady=(14, 4))
+            row=14, column=0, sticky="w", pady=(14, 4))
         ttk.Checkbutton(tab, text="启用每日自动同步", variable=self.var_sched).grid(
-            row=14, column=0, sticky="w")
-        ttk.Entry(tab, textvariable=self.var_synctime, width=10).grid(row=14, column=1, sticky="w")
-        ttk.Checkbutton(tab, text="每周生成学习摘要", variable=self.var_report).grid(
             row=15, column=0, sticky="w")
+        ttk.Entry(tab, textvariable=self.var_synctime, width=10).grid(row=15, column=1, sticky="w")
+        ttk.Checkbutton(tab, text="每周生成学习摘要", variable=self.var_report).grid(
+            row=16, column=0, sticky="w")
         ttk.Label(tab, text="（计划任务执行时使用已保存的浏览器登录态，无窗口）",
-                  foreground="#666").grid(row=16, column=0, columnspan=3, sticky="w")
+                  foreground="#666").grid(row=17, column=0, columnspan=3, sticky="w")
 
         btns = ttk.Frame(tab)
-        btns.grid(row=17, column=0, columnspan=3, sticky="w", pady=(18, 0))
+        btns.grid(row=18, column=0, columnspan=3, sticky="w", pady=(18, 0))
         ttk.Button(btns, text="保存设置", command=self.do_save_settings).pack(side="left")
         ttk.Button(btns, text="立即生成本周摘要", command=self.do_report).pack(side="left", padx=6)
         ttk.Button(btns, text="一键清理缓存", command=self.do_clean_cache).pack(side="left", padx=6)
@@ -869,6 +874,11 @@ class App(tk.Tk):
         self.cfg["extras"]["grades"] = self.var_grades.get()
         self.cfg["extras"]["notices"] = self.var_notices.get()
         self.cfg.setdefault("archives", {})["extract"] = self.var_extract.get()
+        # 「保存讨论区内容」是总开关：快照与链接下载一起启停
+        enabled = self.var_discuss.get()
+        dsc = self.cfg.setdefault("discussions", {})
+        dsc["links"] = enabled
+        dsc["snapshot"] = enabled
         self.cfg["schedule"]["enabled"] = self.var_sched.get()
         self.cfg["schedule"]["sync_time"] = self.var_synctime.get().strip() or "08:30"
         self.cfg["schedule"]["report_enabled"] = self.var_report.get()

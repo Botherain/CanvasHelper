@@ -90,6 +90,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "validation", "labels", "mnist", "cifar", "imagenet", "audio",
         ],
     },
+    # 讨论区（Canvas Discussion）：帖子正文/回帖里常直接放 Colab、GitHub 链接
+    # （CS0004 的 tutorial 就是这么发的）。链接转成 raw 直链下载，帖子存 HTML 快照。
+    "discussions": {
+        # 把 colab.research.google.com / github.com 的 blob 链接转成
+        # raw.githubusercontent.com 直链下载（教程笔记本、讲义都可能）
+        "links": True,
+        # 讨论帖本身存一份 HTML 快照（私有仓库下不了时的兜底）
+        "snapshot": True,
+    },
     "deskbox": {
         "enabled": True,
         # 留空 -> 启动时自动扫描 %LOCALAPPDATA%\DeskBox\data\widgets\*\todo.json
@@ -221,6 +230,15 @@ def load_config() -> dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             get_logger().exception("配置文件读取失败，使用默认配置: %s", CONFIG_PATH)
     return _resolve_defaults(json.loads(json.dumps(DEFAULT_CONFIG)))
+
+
+def cfg_discussions(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """取 ``discussions`` 配置段；允许直接把整份配置或该段传进来。"""
+    if cfg is None:
+        return load_config().get("discussions") or {}
+    if "classes_root" in cfg or "discussions" in cfg:  # 整份配置
+        return cfg.get("discussions") or {}
+    return cfg  # 本身就是 discussions 段
 
 
 def save_config(cfg: dict[str, Any]) -> None:

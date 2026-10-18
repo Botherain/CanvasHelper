@@ -64,23 +64,28 @@ def build_plan(course: Course, folder: Path, items: list[Item], state: dict) -> 
     for item in items:
         if item.kind == "File" and not (item.file_url or item.file_id):
             continue
-        if item.kind not in ("File", "Page"):
+        if item.kind not in ("File", "Page", "Discussion"):
             continue
 
         key = _state_key(course.id, item)
         recorded = state.get("files", {}).get(key)
 
-        if item.kind == "Page":
-            body = (item.extra.get("content_details") or {}).get("body")
+        if item.kind in ("Page", "Discussion"):
+            if item.kind == "Page":
+                body = (item.extra.get("content_details") or {}).get("body")
+                fresh, done = "网页内容", "页面已保存"
+            else:
+                body = item.extra.get("message")
+                fresh, done = "讨论帖快照", "讨论帖已保存"
             if not body:
                 continue
             target = plan_item(folder, item)
             if not target.name.lower().endswith((".html", ".htm")):
                 target = target.with_suffix(".html")
             if target.exists() and recorded and recorded.get("kind") == "page":
-                plan.files.append(PlannedFile(item, target, "exists", note="页面已保存"))
+                plan.files.append(PlannedFile(item, target, "exists", note=done))
             else:
-                plan.files.append(PlannedFile(item, target, "page", note="网页内容"))
+                plan.files.append(PlannedFile(item, target, "page", note=fresh))
             continue
 
         target = plan_item(folder, item)
@@ -111,7 +116,8 @@ def build_plan(course: Course, folder: Path, items: list[Item], state: dict) -> 
                 PlannedFile(item, hit, "exists", size, "本地已有同内容文件"))
             continue
 
-        plan.files.append(PlannedFile(item, target, "download", size))
+        note = "讨论区链接" if item.extra.get("link_source") == "discussion" else ""
+        plan.files.append(PlannedFile(item, target, "download", size, note))
 
     _append_archive_notes(plan, state)
     return plan
@@ -176,7 +182,10 @@ def execute_plan(
             try:
                 ensure_parent(pf.target)
                 if pf.action == "page":
-                    body = (pf.item.extra.get("content_details") or {}).get("body") or ""
+                    if pf.item.kind == "Discussion":
+                        body = pf.item.extra.get("message") or ""
+                    else:
+                        body = (pf.item.extra.get("content_details") or {}).get("body") or ""
                     pf.target.write_text(
                         _page_html(plan.course, pf.item, body), encoding="utf-8"
                     )
@@ -267,4 +276,4 @@ def _fmt_size(n: int | None) -> str:
 
 def _kind_label(pf: PlannedFile) -> str:
     k = pf.item.kind
-    return {"File": "文件", "Page": "网页"}.get(k, k)
+    return {"File": "文件", "Page": "网页", "Discussion": "讨论"}.get(k, k)

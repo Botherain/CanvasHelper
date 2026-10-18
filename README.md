@@ -22,6 +22,7 @@
 | 模块 | 说明 |
 | --- | --- |
 | 课程同步 | 自动识别在读课程 → 勾选 → 拉取模块/文件/页面 → 归档到 `1.Lecture session` / `2.Tutorial session` / `3.Assignments` / `4.Projects` / `5.Books\|Useful links` / `6.Others` |
+| 讨论区内容 | 帖子正文/回帖里的 **Colab / GitHub 链接**转 raw 直链下载（教程笔记本不再手动另存），帖子本身存 HTML 快照 |
 | 待办写入 | 解析 Canvas 截止时间 → **先写副本 `todo.json.new`** → 关闭 DeskBox → 原子替换 → 立即重启（停机约 1 秒），并附带 Canvas 原链接 |
 | 通知聚合 | 各课公告 + Activity Stream，可直接跳转原页；**通知正文只在内存里，打开时现拉一次**，`state.json` 只留已读标记 |
 | 截止日历 | 一键导出 `.ics`，可导入 Windows / 手机日历（含提前 1 天提醒） |
@@ -202,7 +203,7 @@ python -m canvas_helper tidy --apply      # 确认后执行：散件移进章节
 
 1. **模块条目**——含模块内的 Page 正文；
 2. **作业描述**——截止时间与作业附件的唯一可靠来源；
-3. **公告 / 讨论正文**；
+3. **公告 / 讨论正文**——含 Colab / GitHub 链接抽取（见「归档规则」）；
 4. **课程级文件索引** `/api/v1/courses/:id/files`。
 
 其中第 1 条里藏着最麻烦的一种课。以 CS0003 / CS0005 为例，实测：
@@ -260,6 +261,12 @@ python -m canvas_helper tidy --apply      # 确认后执行：散件移进章节
   17 个讲义/作业包全解、10 个数据包全留。解压逐条手工写盘、拒绝 `..` 越界
   （zip-slip）、跳过 `__MACOSX` / `._*` 垃圾、带体积上限；判定结果记进 `state`，
   重复同步不会解第二遍，压缩包本身永远保留。
+- **讨论区里的链接文件**（设置页「保存讨论区内容」可关）：Colab 教程笔记本直接
+  下载——`colab.research.google.com/drive/{文档id}`（Drive 型，公开分享可匿名
+  下载，用帖子标题命名）与 `colab.research.google.com/github/.../blob/...`、
+  `github.com/.../blob/...`（GitHub 型，转 raw 直链）都支持。列表接口不给正文
+  时自动补 show 接口；正文里没链接时才去翻回帖。帖子本身另存一份 HTML 快照
+  （含正文与「打开原文」链接），私有链接下不了时也不丢；公告只扫链接不快照。
 - **整理已有的散件**：设置页 **整理讲义目录** 或 `python -m canvas_helper tidy`
   先列出「哪些文件移到哪个章节目录」的方案，确认后才移动——只移动不删除，
   重名自动加 `(1)`，`state.json` 里的路径跟着回写。

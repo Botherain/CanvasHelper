@@ -78,3 +78,7 @@ def test_10_压缩包判定与解压() -> None:
 
 def test_11_讲义整理() -> None:
     _run("[11] 讲义整理", smoke.s11_tidy)
+
+
+def test_12_讨论区链接与快照() -> None:
+    _run("[12] 讨论区 Colab 链接与快照", smoke.s12_discussions)

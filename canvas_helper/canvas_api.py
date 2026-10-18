@@ -6,12 +6,32 @@ import re
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from .auth import AuthRequired, CanvasSession
-from .paths import get_logger
+from .paths import cfg_discussions, get_logger
 
 log = get_logger()
+
+# GitHub / Colab 直链：blob 页面换成 raw.githubusercontent.com 即可直接下载。
+#   colab.research.google.com/github/{owner}/{repo}/blob/{ref}/{path}
+#   github.com/{owner}/{repo}/blob/{ref}/{path}（/raw/ 同理）
+# 路径里不含 ? # ' " < > ) ]（HTML href / markdown / query 的天然边界）。
+_GH_BLOB_RE = re.compile(
+    r"https?://(?:colab\.research\.google\.com/github/|github\.com/)"
+    r"([\w.\-]+)/([\w.\-]+)/(?:blob|raw)/([\w.\-]+)/([^\s\"'<>)\]?#]+)",
+    re.IGNORECASE,
+)
+_RAW_GH_RE = re.compile(
+    r"https?://raw\.githubusercontent\.com/([\w.\-]+)/([\w.\-]+)/"
+    r"([\w.\-]+)/([^\s\"'<>)\]?#]+)",
+    re.IGNORECASE,
+)
+# Drive 型 Colab 链接（老师个人 Drive 上的笔记本，CS0004 的 week2-7 全是这种）。
+# 文档 id 20+ 位，链接本身不含文件名。
+_COLAB_DRIVE_RE = re.compile(
+    r"https?://colab\.research\.google\.com/drive/([\w\-]{20,})", re.IGNORECASE
+)
 
 
 @dataclass
@@ -376,6 +396,57 @@ class CanvasAPI:
                 out.append(fid)
         return out
 
+    @staticmethod
+    def _link_targets(text: str) -> list[tuple[str, str]]:
+        """讨论正文里的可下载链接 -> [(直链, 文件名)]，同链接去重。
+
+        老师常把 tutorial 笔记本以 Colab 链接发在讨论区，实测两种形态：
+
+        * GitHub 型 ``colab.research.google.com/github/.../blob/...`` 与
+          ``github.com/.../blob/...`` —— 换成 raw 直链即可下载；
+        * Drive 型 ``colab.research.google.com/drive/{文档id}``（CS0004 的
+          week2-7 全是这种）—— 转 ``drive.google.com/uc?export=download``，
+          公开分享的文件可匿名下载，文件名链接里没有（名字为空，由调用方
+          用帖子标题命名）。
+
+        私有仓库/未公开分享会 404，由调用方降级为只存帖子快照。
+        """
+        if not text:
+            return []
+        out: list[tuple[str, str]] = []
+        seen: set[str] = set()
+
+        def _add(url: str, name: str) -> None:
+            if url in seen:
+                return
+            seen.add(url)
+            out.append((url, name))
+
+        for rx in (_GH_BLOB_RE, _RAW_GH_RE):
+            for m in rx.finditer(text):
+                url = "https://raw.githubusercontent.com/" + "/".join(m.groups())
+                name = unquote(url.rpartition("/")[2]).strip()
+                if name:
+                    _add(url, name)
+        for m in _COLAB_DRIVE_RE.finditer(text):
+            _add(f"https://drive.google.com/uc?export=download&id={m.group(1)}", "")
+        return out
+
+    @staticmethod
+    def _entry_texts(entry: dict) -> list[str]:
+        """回帖正文（含嵌套 replies）。"""
+        out = [entry.get("message") or ""]
+        for r in entry.get("replies") or []:
+            out.extend(CanvasAPI._entry_texts(r))
+        return out
+
+    def discussion_entries(self, course_id: int, topic_id: int) -> list[dict]:
+        """讨论帖的回帖（顶层列表，更深的 replies 嵌在各条目里）。"""
+        return self.get_all(
+            f"/api/v1/courses/{course_id}/discussion_topics/{topic_id}/entries",
+            params={"per_page": 100},
+        )
+
     def collect_items(self, course_id: int) -> tuple[list[Item], list[dict]]:
         """收集一门课的全部内容。
 
@@ -525,11 +596,99 @@ class CanvasAPI:
             log.warning("%s 讨论区读取失败: %s", course_id, exc)
             topics = []
 
+        dsc = cfg_discussions()
+        seen_urls: set[str] = set()
+
         for t in topics:
-            for fid in self._file_ids_from(t.get("message") or ""):
+            msg = t.get("message") or ""
+            title = decode_name(t.get("title") or "").strip()
+            tid = t.get("id")
+            # 列表接口常常不带正文（CS0004 实测 7/7 个 message 全空），
+            # 要用 show 接口补——链接和快照都靠这份正文
+            if not msg and isinstance(tid, int) and (
+                    dsc.get("links", True) or dsc.get("snapshot", True)):
+                try:
+                    full = self.get(
+                        f"/api/v1/courses/{course_id}/discussion_topics/{tid}")
+                    if isinstance(full, dict):
+                        msg = full.get("message") or ""
+                except AuthRequired:
+                    raise
+                except Exception as exc:
+                    log.warning("%s 讨论帖正文读取失败 topic=%s: %s", course_id, tid, exc)
+            for fid in self._file_ids_from(msg):
                 made = _make_file(fid)
                 if made is not None:
                     items.append(made)
+
+            if not dsc.get("links", True):
+                continue
+
+            # 直链：正文里没有才去翻回帖（省 API 调用）
+            links = self._link_targets(msg)
+            if not links and tid and not t.get("is_announcement"):
+                try:
+                    for e in self.discussion_entries(course_id, int(tid)):
+                        for text in self._entry_texts(e):
+                            for fid in self._file_ids_from(text):
+                                made = _make_file(fid)
+                                if made is not None:
+                                    items.append(made)
+                            links += self._link_targets(text)
+                except AuthRequired:
+                    raise
+                except Exception as exc:
+                    log.warning("%s 讨论回帖读取失败 topic=%s: %s", course_id, tid, exc)
+
+            # 同一帖里多条不带文件名的链接 -> 第 2 条起加序号，避免互相覆盖
+            titled: dict[str, int] = {}
+            for url, link_name in links:
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                name = link_name
+                if not name:
+                    # Drive 型 Colab 链接不带文件名 -> 用帖子标题命名
+                    stem = re.sub(r'[\\/:*?"<>|]', "_", title).strip() or f"colab-{tid}"
+                    titled[stem] = titled.get(stem, 0) + 1
+                    n = titled[stem]
+                    name = f"{stem}.ipynb" if n == 1 else f"{stem}-{n}.ipynb"
+                items.append(Item(
+                    course_id=course_id,
+                    module_name=title,
+                    title=name,
+                    kind="File",
+                    html_url=t.get("html_url") or "",
+                    file_name=name,
+                    file_url=url,
+                    extra={"link_source": "discussion"},
+                ))
+
+            # 帖子本身存快照。公告已有通知渠道聚合，只扫链接不快照
+            if (not dsc.get("snapshot", True) or not msg
+                    or t.get("is_announcement")):
+                continue
+            if title:
+                key = f"Discussion:{title}"
+                if key in seen_keys:
+                    # 模块里已挂过同名讨论条目 -> 回填正文，不重复入列
+                    for it in items:
+                        if (it.kind == "Discussion" and it.title == title
+                                and not it.extra.get("message")):
+                            it.extra["message"] = msg
+                            break
+                    continue
+                seen_keys.add(key)
+            items.append(Item(
+                course_id=course_id,
+                module_name="",
+                title=title or f"讨论 {tid}",
+                kind="Discussion",
+                html_url=t.get("html_url") or (
+                    f"https://canvas.example.edu/courses/{course_id}/discussion_topics/{tid}"),
+                file_id=tid if isinstance(tid, int) else None,
+                extra={"message": msg, "topic_id": tid},
+            ))
 
         # ---- 4) 文件索引里剩下的（没挂模块、也没被作业/页面/讨论引用）----
         for fid in file_index:

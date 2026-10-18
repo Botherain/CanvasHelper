@@ -1,4 +1,4 @@
-"""离线自检：分类规则、目录推断、压缩包解压、讲义整理、待办合并、登录过期契约、打包元数据。
+"""离线自检：分类规则、目录推断、压缩包解压、讲义整理、讨论区链接、待办合并、登录过期契约、打包元数据。
 
 两种入口共用同一套断言，因此不会出现「脚本绿、pytest 红」的分叉：
 
@@ -170,6 +170,8 @@ def s2_classify() -> None:
         ("", "", "Assignment", "assignment"),               # 类型兜底
         ("course files/Assignment1", "x.pdf", "File", "assignment"),  # Assignment1 无分隔符
         ("", "Tutorial+1.pdf", "File", "tutorial"),
+        # 讨论区帖子标题（CS0004 的 "Colab sharing for weekN"）按教程处理
+        ("", "Colab sharing for week7", "Discussion", "tutorial"),
     ]
     for folder, title, kind, want in cases:
         got = category_of(folder, title, kind)
@@ -221,7 +223,9 @@ def s3_resolve(folders: dict) -> None:
     p = resolve_dir(cats4, "", "", "0.Introduction.pptx", "File")
     check("第 0 章归到 Lecture0", p.name == "Lecture0", str(p))
     p = resolve_dir(cats4, "", "Week 2", "slides for week.pdf", "File")
-    check("模块名里的 Week 编号生效", p.name == "Week2", str(p))
+    # 编号必须生效；目录名跟随本地样式——真实库整理后是 LectureN，蓝本里无样本才是 Week2
+    check("模块名里的 Week 编号生效",
+          p.name.lower().replace(" ", "") in ("week2", "lecture2"), str(p))
 
 
 def s4_sanitize() -> None:
@@ -872,6 +876,101 @@ def s11_tidy() -> None:
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def s12_discussions() -> None:
+    from canvas_helper import filesync
+    from canvas_helper.canvas_api import CanvasAPI
+    from canvas_helper.filesync import build_plan, execute_plan
+
+    print("\n[12] 讨论区：Colab 链接下载 + 帖子快照")
+    # 链接解析：colab / github blob / raw 直链，剥 query、去重
+    msg = (
+        '<a href="https://colab.research.google.com/github/prof/cs5494/blob/main/'
+        'cs5494_tutorial_1_MNIST.ipynb?usp=sharing">a</a> '
+        "https://github.com/prof/cs5494/blob/main/cs5494_tutorial_1_MNIST.ipynb "
+        "https://raw.githubusercontent.com/prof/cs5494/main/notes.pdf"
+    )
+    links = CanvasAPI._link_targets(msg)
+    check("colab 转 raw 直链且剥掉 query",
+          links[0] == ("https://raw.githubusercontent.com/prof/cs5494/main/"
+                       "cs5494_tutorial_1_MNIST.ipynb", "cs5494_tutorial_1_MNIST.ipynb"),
+          str(links))
+    check("同链接去重（colab 与 blob 等价）", len(links) == 2, str(links))
+    check("已是 raw 的直链原样收录",
+          links[1][0] == "https://raw.githubusercontent.com/prof/cs5494/main/notes.pdf",
+          str(links))
+    dlinks = CanvasAPI._link_targets(
+        "<p>https://colab.research.google.com/drive/"
+        "1-CNfyNMUbrML8sXFCYPt3JBq9QGrVbTa?usp=sharing</p>")
+    check("drive 型 colab 转下载直链、文件名留空由帖子标题补",
+          dlinks == [("https://drive.google.com/uc?export=download"
+                      "&id=1-CNfyNMUbrML8sXFCYPt3JBq9QGrVbTa", "")], str(dlinks))
+
+    tmp = Path(tempfile.mkdtemp(prefix="ch_discuss_"))
+    course = tmp / "CS0004 - Generative AI"
+    (course / "2.Tutorial session").mkdir(parents=True)
+    c = Course(id=94, name="Generative AI", code="CS0004")
+    items = [
+        Item(course_id=94, module_name="Week 1 Tutorial",
+             title="cs5494_tutorial_1_MNIST.ipynb", kind="File",
+             file_name="cs5494_tutorial_1_MNIST.ipynb",
+             file_url="https://raw.githubusercontent.com/prof/cs5494/main/"
+                      "cs5494_tutorial_1_MNIST.ipynb",
+             extra={"link_source": "discussion"}),
+        Item(course_id=94, module_name="", title="Week 1 Tutorial", kind="Discussion",
+             html_url="https://canvas.example.edu/courses/94/discussion_topics/71",
+             file_id=71, extra={"message": "<p>colab link above</p>", "topic_id": 71}),
+    ]
+    st = {"files": {}}
+    plan = build_plan(c, course, items, st)
+    names = [str(p.target.relative_to(course)).replace("\\", "/") for p in plan.files]
+    print("      计划:", names)
+    check("笔记本按帖标题分类进 2.Tutorial session",
+          "2.Tutorial session/cs5494_tutorial_1_MNIST.ipynb" in names, str(names))
+    check("帖子存快照为 html",
+          "2.Tutorial session/Week 1 Tutorial.html" in names, str(names))
+    check("预览标注讨论区来源",
+          any(p.note == "讨论区链接" for p in plan.files)
+          and any(p.note == "讨论帖快照" for p in plan.files),
+          str([(p.target.name, p.note) for p in plan.files]))
+
+    class _FakeAPI:
+        """下载桩：只记录调用，返回一个最小 ipynb。"""
+
+        def __init__(self) -> None:
+            self.urls: list[str] = []
+
+        def download(self, url: str):
+            self.urls.append(url)
+            return b'{"cells": []}', "", "application/json"
+
+    # execute_plan 收尾会 flush state -> smoke 直跑时不能碰真实 state.json
+    old_flush = filesync._flush_state
+    filesync._flush_state = lambda state: None
+    try:
+        fake = _FakeAPI()
+        stats = execute_plan([plan], fake, st)  # type: ignore[arg-type]
+        check("执行：下载 1 + 快照 1",
+              stats["downloaded"] == 1 and stats["pages"] == 1, str(stats))
+        check("落盘内容正确",
+              (course / "2.Tutorial session" / "cs5494_tutorial_1_MNIST.ipynb")
+              .read_bytes().startswith(b"{")
+              and (course / "2.Tutorial session" / "Week 1 Tutorial.html").is_file())
+        check("快照正文不能丢（Discussion 走 extra.message）",
+              "colab link above" in (course / "2.Tutorial session"
+                                     / "Week 1 Tutorial.html").read_text(encoding="utf-8"))
+        plan2 = build_plan(c, course, items, st)
+        check("二次同步全部已存在",
+              all(p.action == "exists" for p in plan2.files),
+              str([(p.target.name, p.action) for p in plan2.files]))
+        fake2 = _FakeAPI()
+        execute_plan([plan2], fake2, st)  # type: ignore[arg-type]
+        check("二次执行零下载调用", fake2.urls == [], str(fake2.urls))
+    finally:
+        filesync._flush_state = old_flush
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 # --------------------------------------------------------------------------- #
 # 脚本入口
 # --------------------------------------------------------------------------- #
@@ -896,6 +995,7 @@ def main() -> int:
     s9_packaging()
     s10_extract()
     s11_tidy()
+    s12_discussions()
 
     if fixture_root is not None:
         shutil.rmtree(fixture_root, ignore_errors=True)

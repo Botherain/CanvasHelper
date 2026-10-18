@@ -19,6 +19,10 @@
       "validation", "labels", "mnist", "cifar", "imagenet", "audio"
     ]
   },
+  "discussions": {
+    "links": true,
+    "snapshot": true
+  },
   "deskbox": {
     "enabled": true,
     "todo_path": "",

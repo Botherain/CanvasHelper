@@ -28,7 +28,7 @@ _RULES: list[tuple[str, str]] = [
      r"\b(past paper|past papers|old exam|exams?|midterm|final exam|syllabus|outline|policies|policy|"
      r"grading|grade|course info|announcements?|faq|schedule|handouts?|template|orientation)\b|考卷|考试|大纲"),
     ("tutorial",
-     r"\b(tutorials?|recitation|workshops?|exercises?|solutions?|drills?)\b|习题|上机"),
+     r"\b(tutorials?|recitation|workshops?|exercises?|solutions?|drills?|colab)\b|习题|上机"),
     ("lecture",
      r"\b(lectures?|weeks?|slides?|notes?|chapters?|topics?)\b|课件|第.{0,3}周"),
     ("book",
