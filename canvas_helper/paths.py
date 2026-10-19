@@ -10,6 +10,7 @@ import shutil
 import sys
 from contextlib import suppress
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -145,6 +146,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 _logger: logging.Logger | None = None
+_DEFAULT_STATE: dict[str, Any] = {
+    "files": {},
+    "todo_keys": {},
+    "todo_done": {},
+    "notices": {},
+    "last_sync": None,
+}
 
 
 def get_logger() -> logging.Logger:
@@ -156,7 +164,11 @@ def get_logger() -> logging.Logger:
             fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
             try:
                 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-                fh = logging.FileHandler(LOG_PATH, encoding="utf-8")
+                # 日志轮转：常驻机器上长期运行时，避免 sync.log 无上限增长。
+                # cleaner.py 已兼容 .1/.2/.3 轮转后缀并会一并清理。
+                fh = RotatingFileHandler(
+                    LOG_PATH, encoding="utf-8", maxBytes=1_000_000, backupCount=3
+                )
                 fh.setFormatter(fmt)
                 logger.addHandler(fh)
             except OSError:
@@ -244,7 +256,7 @@ def load_config() -> dict[str, Any]:
     except OSError:
         # 配置还没建立（或 stat 失败）：用默认配置且不缓存，文件出现后
         # 下一次调用自然会走正常缓存路径。
-        return _resolve_defaults(json.loads(json.dumps(DEFAULT_CONFIG)))
+        return _resolve_defaults(copy.deepcopy(DEFAULT_CONFIG))
     key = (str(CONFIG_PATH), st.st_mtime_ns, st.st_size)
     if _cfg_cache is not None and _cfg_cache[0] == key:
         return copy.deepcopy(_cfg_cache[1])
@@ -253,7 +265,7 @@ def load_config() -> dict[str, Any]:
         cfg = _resolve_defaults(_deep_merge(DEFAULT_CONFIG, data))
     except (OSError, json.JSONDecodeError):
         get_logger().exception("配置文件读取失败，使用默认配置: %s", CONFIG_PATH)
-        cfg = _resolve_defaults(json.loads(json.dumps(DEFAULT_CONFIG)))
+        cfg = _resolve_defaults(copy.deepcopy(DEFAULT_CONFIG))
     _cfg_cache = (key, cfg)
     return copy.deepcopy(cfg)
 
@@ -282,19 +294,37 @@ def save_config(cfg: dict[str, Any]) -> None:
 
 
 def load_state() -> dict[str, Any]:
-    if STATE_PATH.exists():
-        try:
-            return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            get_logger().exception("状态文件读取失败，重新初始化: %s", STATE_PATH)
-    return {"files": {}, "todo_keys": {}, "todo_done": {}, "notices": {}, "last_sync": None}
+    """读状态（带 mtime 缓存）。返回副本，调用方可直接改不污染缓存。"""
+    global _state_cache
+    try:
+        st = STATE_PATH.stat()
+    except OSError:
+        # 状态文件还不存在：返回空状态且不缓存，文件落地后自然切到缓存路径。
+        return copy.deepcopy(_DEFAULT_STATE)
+    key = (str(STATE_PATH), st.st_mtime_ns, st.st_size)
+    if _state_cache is not None and _state_cache[0] == key:
+        return copy.deepcopy(_state_cache[1])
+    try:
+        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        get_logger().exception("状态文件读取失败，重新初始化: %s", STATE_PATH)
+        state = copy.deepcopy(_DEFAULT_STATE)
+    _state_cache = (key, state)
+    return copy.deepcopy(state)
 
 
 def save_state(state: dict[str, Any]) -> None:
+    global _state_cache
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(
         json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    _state_cache = None
+
+
+# load_state 的进程内缓存，键 = (路径, mtime_ns, size)：通知已读/鉴权标记/清理器
+# 都会在一次运行里多次读取 state.json，缓存可避免重复读盘 + JSON 解析。
+_state_cache: tuple[tuple[str, int, int], dict[str, Any]] | None = None
 
 
 def mark_auth_needed(source: str = "") -> None:

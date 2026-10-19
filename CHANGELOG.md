@@ -28,6 +28,14 @@
   `ensure_dirs()`（两个入口都会先调），`--version`、跑测试、被引用导入都变成
   纯内存操作；`now_hk()` 的 `ZoneInfo` 提为模块级常量，与 deskbox/extras 写法
   统一。
+- **`state.json` 读缓存**：`load_state()` 新增 `(路径, mtime_ns, size)` 缓存并返回
+  deepcopy，`save_state()` 显式失效。通知已读标记、鉴权标记与清理逻辑在一次运行
+  中会多次读状态文件，缓存把重复读盘 + JSON 解析压到一次。
+- **日志改轮转**：`sync.log` 由 `FileHandler` 改为 `RotatingFileHandler`
+  （1MB × 3 备份），长期运行时不再无限增长；`cleaner` 原有 `.1/.2/.3` 清理
+  逻辑直接复用。
+- **CI 轻量化（网络）**：工作流环境新增 `PIP_DISABLE_PIP_VERSION_CHECK=1`，
+  减少每个 job 的 pip 额外网络探测与日志噪音。
 
 ### 发布准备 · 转公开前的去标识化
 
