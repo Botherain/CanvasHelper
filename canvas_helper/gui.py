@@ -149,6 +149,11 @@ class App(tk.Tk):
 
     def log(self, msg: str) -> None:
         self.log_text.insert("end", f"{now_hk():%H:%M:%S}  {msg}\n")
+        # 控件行数无上限时，GUI 挂得越久文本控件越滚越慢：保留最近 500 行，
+        # 超出的部分从顶部按批删（index("end-1c") 取的是最后一行的逻辑行号）。
+        last = int(self.log_text.index("end-1c").split(".")[0])
+        if last > 500:
+            self.log_text.delete("1.0", f"{last - 500 + 1}.0")
         self.log_text.see("end")
 
     # ---------- 界面 ----------

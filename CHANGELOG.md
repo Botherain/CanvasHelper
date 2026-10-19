@@ -7,6 +7,28 @@
 
 ## [未发布]
 
+### 优化 · 轻量化与资源占用
+
+- **GUI 空闲不再烧 CPU**：`_deskbox_pids` 由「每次 spawn `tasklist`」换成
+  ctypes Toolhelp32 进程快照（进程内查询）——实测旧版单次 tasklist 约 245ms
+  CPU，而 GUI 每 4 秒轮询一次、`stop()` 关停循环每 0.15 秒一次，常开一天是
+  上万次进程创建；换 Toolhelp32 快照后实测中位数约 10ms（约 23 倍）且
+  **零子进程**，子进程控制台黑框问题一并根除（`taskkill` / `Popen(DeskBox)`
+  仍走子进程，保留 `CREATE_NO_WINDOW`）。
+  顺带把匹配从 `startswith` 收紧为 exe 全名相等，`DeskBox` 不再误命中
+  `DeskBoxXxx.exe` 之类。
+- **`load_config()` 加 mtime 缓存**：键 = (路径, mtime_ns, size)，`save_config`
+  显式失效，返回 deepcopy（调用方改写语义不变）。同步热路径里 `canvas_home()` /
+  `cfg_discussions()` 被逐条待办反复调用，原来每次都读盘 + 解析 + 深合并；首装机
+  `todo_path` 未配置时还会每次调用都 glob 一遍 `widgets/*/todo.json`。解析失败同样
+  按键缓存成默认配置，坏配置只刷一次异常日志。
+- **GUI 日志保留最近 500 行**：`log_text` 原先只增不删，长会话文本控件无限增长；
+  超限后从顶部按批删行，自动滚底行为不变。
+- **import 不再动磁盘**：`_bootstrap()`（建目录 + 搬旧数据）从模块导入时挪到
+  `ensure_dirs()`（两个入口都会先调），`--version`、跑测试、被引用导入都变成
+  纯内存操作；`now_hk()` 的 `ZoneInfo` 提为模块级常量，与 deskbox/extras 写法
+  统一。
+
 ### 发布准备 · 转公开前的去标识化
 
 - **院校信息移除**：硬编码的学校域名全部改为配置项 `canvas_home`

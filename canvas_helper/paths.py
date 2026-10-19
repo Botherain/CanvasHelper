@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 # ---------- 目录约定 ----------
 # 源码 / 安装位置。只读用途：定位包、作为计划任务的工作目录。
@@ -46,7 +48,9 @@ def _bootstrap() -> None:
                 shutil.copy2(src, dst)
 
 
-_bootstrap()
+# 刻意不在 import 时执行 _bootstrap()：建目录 + 搬旧数据是「入口动作」，由
+# ensure_dirs()（__main__ / gui 两个入口都会先调）承担——纯 import（如
+# --version、跑测试、被别的模块引用）不再动一次磁盘。
 
 # 每门课在本地的分类前缀 -> 默认目录名（以磁盘上真实存在的目录为准）
 CATEGORY_PREFIXES = {
@@ -225,14 +229,33 @@ def _resolve_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
+# load_config 的进程内缓存，键 = (路径, mtime_ns, size)：同步热路径里
+# canvas_home() / cfg_discussions() 会被逐条待办反复调用，原来每次都读盘 +
+# 解析 + 深合并；解析失败也按同一键缓存成默认配置，坏配置只刷一次异常日志。
+# 键里带上路径，是防测试把 CONFIG_PATH 换到临时文件后串缓存。
+_cfg_cache: tuple[tuple[str, int, int], dict[str, Any]] | None = None
+
+
 def load_config() -> dict[str, Any]:
-    if CONFIG_PATH.exists():
-        try:
-            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            return _resolve_defaults(_deep_merge(DEFAULT_CONFIG, data))
-        except (OSError, json.JSONDecodeError):
-            get_logger().exception("配置文件读取失败，使用默认配置: %s", CONFIG_PATH)
-    return _resolve_defaults(json.loads(json.dumps(DEFAULT_CONFIG)))
+    """读配置（带 mtime 缓存）。返回的是副本，调用方改写自己那份不会污染缓存。"""
+    global _cfg_cache
+    try:
+        st = CONFIG_PATH.stat()
+    except OSError:
+        # 配置还没建立（或 stat 失败）：用默认配置且不缓存，文件出现后
+        # 下一次调用自然会走正常缓存路径。
+        return _resolve_defaults(json.loads(json.dumps(DEFAULT_CONFIG)))
+    key = (str(CONFIG_PATH), st.st_mtime_ns, st.st_size)
+    if _cfg_cache is not None and _cfg_cache[0] == key:
+        return copy.deepcopy(_cfg_cache[1])
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        cfg = _resolve_defaults(_deep_merge(DEFAULT_CONFIG, data))
+    except (OSError, json.JSONDecodeError):
+        get_logger().exception("配置文件读取失败，使用默认配置: %s", CONFIG_PATH)
+        cfg = _resolve_defaults(json.loads(json.dumps(DEFAULT_CONFIG)))
+    _cfg_cache = (key, cfg)
+    return copy.deepcopy(cfg)
 
 
 def canvas_home() -> str:
@@ -250,10 +273,12 @@ def cfg_discussions(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def save_config(cfg: dict[str, Any]) -> None:
+    global _cfg_cache
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(
         json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    _cfg_cache = None  # 显式清一次：紧跟着的 load_config 拿到的必是刚写的内容
 
 
 def load_state() -> dict[str, Any]:
@@ -292,15 +317,16 @@ def clear_auth_needed() -> bool:
     return True
 
 
-def now_hk():
+# 与 deskbox / extras 的写法一致：时区常量提模块级，不再每次调用现 import + 构造
+HK = ZoneInfo("Asia/Hong_Kong")
 
-    from zoneinfo import ZoneInfo
 
-    return datetime.now(UTC).astimezone(ZoneInfo("Asia/Hong_Kong"))
+def now_hk() -> datetime:
+    return datetime.now(UTC).astimezone(HK)
 
 
 def ensure_dirs() -> None:
     for d in (DATA_DIR, PROFILE_DIR):
         with suppress(OSError):
             d.mkdir(parents=True, exist_ok=True)
-    _bootstrap()  # 兜底：import 时目录若没建成，这里再搬一次旧数据
+    _bootstrap()  # 建目录 + 搬 v1.0 之前留在源码目录的旧数据（只在入口执行）
