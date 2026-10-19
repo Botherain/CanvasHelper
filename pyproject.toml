@@ -114,7 +114,7 @@ warn_unused_configs = true
 module = "tests.*"
 # 自检脚本大量用鸭子类型替身（_Stub / _DeadSession）冒充 CanvasSession，这正是
 # 「离线跑、不依赖真实 Playwright」的设计前提；给替身硬套类型层次只会造假。
-# tests 仍受 ruff 约束（E/F/I/UP/B/SIM/PERF… 全绿），功能由 129 项断言保证。
+# tests 仍受 ruff 约束（E/F/I/UP/B/SIM/PERF… 全绿），功能由 180 项断言保证。
 ignore_errors = true
 
 # ---------------------------------------------------------------------------
