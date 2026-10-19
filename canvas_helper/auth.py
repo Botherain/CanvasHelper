@@ -20,8 +20,9 @@ StatusCb = Callable[[str], None]
 
 # Chromium 的 headless 模式不会加载 profile 里已落盘的 cookie（已实测：磁盘上有、
 # headless 上下文读不到），因此改为显式导出/导入 cookie，两条路径都可靠。
-# 站点地址来自配置（canvas_home），SSO 域名各校不同——本上下文只打开过 Canvas
-# 与其登录流程，所以整上下文 cookie 全存，换任何学校都适用。
+# 站点地址来自配置（canvas_home），SSO 域名各校不同——登录窗只有这一个用途，
+# 整上下文 cookie 全存（含登录链路 IdP、Edge 新标签页等，均留本机 gitignored
+# 文件），换任何学校都不会漏存 SSO 票据；不想留就 canvas-helper clean --login。
 SESSION_PATH = PROFILE_DIR.parent / "session.json"
 
 
