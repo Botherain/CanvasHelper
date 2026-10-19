@@ -68,6 +68,9 @@ DEFAULT_CATEGORIES = {
 }
 
 DEFAULT_CONFIG: dict[str, Any] = {
+    # 你学校的 Canvas 站点地址（结尾不带 /），例如 https://canvas.example.edu。
+    # 留空 -> 启动后在设置页「Canvas 站点地址」填写，未配置时同步会明确报错。
+    "canvas_home": "",
     # 课程根目录（每个课程一个子文件夹）。留空 -> 启动时取 <用户目录>/CanvasCourses，
     # 在设置页「浏览…」选成你自己的目录。
     "classes_root": "",
@@ -230,6 +233,11 @@ def load_config() -> dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             get_logger().exception("配置文件读取失败，使用默认配置: %s", CONFIG_PATH)
     return _resolve_defaults(json.loads(json.dumps(DEFAULT_CONFIG)))
+
+
+def canvas_home() -> str:
+    """配置里的 Canvas 站点地址（不带结尾斜杠）；未配置时返回空串。"""
+    return (load_config().get("canvas_home") or "").strip().rstrip("/")
 
 
 def cfg_discussions(cfg: dict[str, Any] | None = None) -> dict[str, Any]:

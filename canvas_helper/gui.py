@@ -15,7 +15,16 @@ from typing import Any
 from . import APP_NAME, __version__, deskbox, runner, scheduler
 from .canvas_api import Course
 from .classify import course_dirs, match_folder
-from .paths import LOG_PATH, PROFILE_DIR, get_logger, load_config, load_state, now_hk, save_config
+from .paths import (
+    LOG_PATH,
+    PROFILE_DIR,
+    canvas_home,
+    get_logger,
+    load_config,
+    load_state,
+    now_hk,
+    save_config,
+)
 
 log = get_logger()
 
@@ -299,6 +308,7 @@ class App(tk.Tk):
         self.nb.add(tab, text=" 设置 ")
 
         self.var_root = tk.StringVar(value=self.cfg["classes_root"])
+        self.var_home = tk.StringVar(value=self.cfg.get("canvas_home") or "")
         self.var_todo = tk.StringVar(value=self.cfg["deskbox"]["todo_path"])
         self.var_exe = tk.StringVar(value=self.cfg["deskbox"]["exe_path"])
         self.var_fix = tk.BooleanVar(value=self.cfg["deskbox"]["fix_attachment_paths"])
@@ -321,48 +331,49 @@ class App(tk.Tk):
                     row=y, column=2, padx=6)
 
         row("课程根目录", self.var_root, 0, "dir")
-        row("DeskBox todo.json", self.var_todo, 1, "file")
-        row("DeskBox 程序路径", self.var_exe, 2, "exe")
+        row("Canvas 站点地址", self.var_home, 1)
+        row("DeskBox todo.json", self.var_todo, 2, "file")
+        row("DeskBox 程序路径", self.var_exe, 3, "exe")
         tab.columnconfigure(1, weight=1)
 
-        ttk.Label(tab, text="同步行为", style="Header.TLabel").grid(row=3, column=0, sticky="w", pady=(14, 4))
+        ttk.Label(tab, text="同步行为", style="Header.TLabel").grid(row=4, column=0, sticky="w", pady=(14, 4))
         ttk.Checkbutton(tab, text="自动修复已有待办中缺少 Classes 层级的附件路径",
-                        variable=self.var_fix).grid(row=4, column=0, columnspan=3, sticky="w")
+                        variable=self.var_fix).grid(row=5, column=0, columnspan=3, sticky="w")
         ttk.Checkbutton(tab, text="导出截止日历 .ics", variable=self.var_ics).grid(
-            row=5, column=0, columnspan=3, sticky="w")
-        ttk.Checkbutton(tab, text="更新成绩到 GradeNeed.txt", variable=self.var_grades).grid(
             row=6, column=0, columnspan=3, sticky="w")
-        ttk.Checkbutton(tab, text="读取并聚合通知/公告", variable=self.var_notices).grid(
+        ttk.Checkbutton(tab, text="更新成绩到 GradeNeed.txt", variable=self.var_grades).grid(
             row=7, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(tab, text="读取并聚合通知/公告", variable=self.var_notices).grid(
+            row=8, column=0, columnspan=3, sticky="w")
         ttk.Checkbutton(
             tab, text="下载后自动解压压缩包（内容包解压，数据包原样保留）",
-            variable=self.var_extract).grid(row=8, column=0, columnspan=3, sticky="w")
+            variable=self.var_extract).grid(row=9, column=0, columnspan=3, sticky="w")
         ttk.Checkbutton(
             tab, text="保存讨论区内容（帖子存快照，Colab/GitHub 链接文件直接下载）",
-            variable=self.var_discuss).grid(row=9, column=0, columnspan=3, sticky="w")
+            variable=self.var_discuss).grid(row=10, column=0, columnspan=3, sticky="w")
 
         ttk.Label(tab, text="后台（计划任务）同步时 DeskBox 待办处理方式",
-                  style="Header.TLabel").grid(row=10, column=0, sticky="w", pady=(14, 4))
+                  style="Header.TLabel").grid(row=11, column=0, sticky="w", pady=(14, 4))
         for i, (val, text) in enumerate((
             ("queue", "排队：不打扰 DeskBox，下次打开本程序时写入（推荐）"),
             ("restart", "立即重启 DeskBox 完成写入"),
             ("skip", "跳过：后台同步不写待办"),
         )):
             ttk.Radiobutton(tab, text=text, value=val, variable=self.var_policy).grid(
-                row=11 + i, column=0, columnspan=3, sticky="w")
+                row=12 + i, column=0, columnspan=3, sticky="w")
 
         ttk.Label(tab, text="计划任务", style="Header.TLabel").grid(
-            row=14, column=0, sticky="w", pady=(14, 4))
+            row=15, column=0, sticky="w", pady=(14, 4))
         ttk.Checkbutton(tab, text="启用每日自动同步", variable=self.var_sched).grid(
-            row=15, column=0, sticky="w")
-        ttk.Entry(tab, textvariable=self.var_synctime, width=10).grid(row=15, column=1, sticky="w")
-        ttk.Checkbutton(tab, text="每周生成学习摘要", variable=self.var_report).grid(
             row=16, column=0, sticky="w")
+        ttk.Entry(tab, textvariable=self.var_synctime, width=10).grid(row=16, column=1, sticky="w")
+        ttk.Checkbutton(tab, text="每周生成学习摘要", variable=self.var_report).grid(
+            row=17, column=0, sticky="w")
         ttk.Label(tab, text="（计划任务执行时使用已保存的浏览器登录态，无窗口）",
-                  foreground="#666").grid(row=17, column=0, columnspan=3, sticky="w")
+                  foreground="#666").grid(row=18, column=0, columnspan=3, sticky="w")
 
         btns = ttk.Frame(tab)
-        btns.grid(row=18, column=0, columnspan=3, sticky="w", pady=(18, 0))
+        btns.grid(row=19, column=0, columnspan=3, sticky="w", pady=(18, 0))
         ttk.Button(btns, text="保存设置", command=self.do_save_settings).pack(side="left")
         ttk.Button(btns, text="立即生成本周摘要", command=self.do_report).pack(side="left", padx=6)
         ttk.Button(btns, text="一键清理缓存", command=self.do_clean_cache).pack(side="left", padx=6)
@@ -373,7 +384,7 @@ class App(tk.Tk):
             tab,
             text=f"浏览器登录态保存在：{PROFILE_DIR}  ·  日志：{LOG_PATH}",
             foreground="#666",
-        ).grid(row=18, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ).grid(row=20, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
     # ---------- 交互 ----------
 
@@ -419,7 +430,11 @@ class App(tk.Tk):
     def open_canvas(self) -> None:
         # ShellExecute 直接开链接。原来是 `cmd /c start`，而 GUI 没有控制台，
         # cmd 就会临时新建一个可见控制台——点一下闪一个黑框。
-        os.startfile("https://canvas.example.edu/")
+        home = canvas_home()
+        if home:
+            os.startfile(home + "/")
+        else:
+            messagebox.showinfo(APP_NAME, "请先在设置页填写「Canvas 站点地址」。")
 
     def open_project(self) -> None:
         from .paths import DATA_DIR
@@ -866,6 +881,7 @@ class App(tk.Tk):
 
     def do_save_settings(self) -> None:
         self.cfg["classes_root"] = self.var_root.get().strip()
+        self.cfg["canvas_home"] = self.var_home.get().strip().rstrip("/")
         self.cfg["deskbox"]["todo_path"] = self.var_todo.get().strip()
         self.cfg["deskbox"]["exe_path"] = self.var_exe.get().strip()
         self.cfg["deskbox"]["fix_attachment_paths"] = self.var_fix.get()

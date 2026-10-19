@@ -8,8 +8,8 @@
 ```powershell
 python -m ruff check canvas_helper tests scripts  # 0 错误
 python -m mypy                             # Success: no issues found
-python tests\smoke.py                      # 129 通过, 0 失败
-python -m pytest                           # 20 passed
+python tests\smoke.py                      # 180 通过, 0 失败
+python -m pytest                           # 34 passed
 ```
 
 改了 `pyproject.toml` 的 `version` 就必须同步改
@@ -23,27 +23,28 @@ CI（`lint` + `smoke` × Python 3.11/3.12/3.13/3.14）全绿后才能发。
 - 版本号：语义化版本，改 `pyproject.toml` 与 `__init__.py` 两处。
 - `CHANGELOG.md`：把 `[未发布]` 下的内容挪进新的版本小节，补日期。
 
-## 3. 转公开（public）前必须 scrub 的内容
+## 3. 转公开（public）前必须 scrub 的内容 ✅ 已执行
 
-仓库目前是**私有**的，因为里面硬编码了本校域名与真实课程号。
-转 `public` 前，下列位置必须处理干净：
+本节清单已在转公开时全部执行完毕，留档以备复查：
 
-| 文件 | 位置 | 内容 |
+| 文件 | 内容 | 处理 |
 | --- | --- | --- |
-| `canvas_helper/auth.py` | 常量 | `CANVAS_HOME`、`LOGIN_PROBE` 里的学校域名 |
-| `canvas_helper/canvas_api.py` | 约 160 / 384 / 440 行 | 回退用的 `html_url`、`assignments` 的 `html_url` 兜底 |
-| `canvas_helper/deskbox.py` | 约 25 行 | DeskBox 数据目录相关的本机路径示例 |
-| `canvas_helper/extras.py` | 约 57 行 | `.ics` / 摘要里出现的域名 |
-| `canvas_helper/gui.py` | 约 394 行 | 「打开 Canvas」按钮的固定链接 |
-| `canvas_helper/classify.py` | 约 79 / 180 行 | 示例里的课程号 `CS0001` 之类 |
-| `canvas_helper/canvas_api.py` | 约 331 / 332 行 | 注释里举的课程号 |
-| `tests/smoke.py`、`tests/test_canvas_api.py` | fixture 与断言 | `10001` / `10003` / `10005` 一类的课程 id、`CS0003` 等 |
-| **`README.md`** | 「快速开始」「安全与隐私」两节 | clone 地址、以及 `canvas.example.edu` / `auth.example.edu` / `sso.canvaslms.com` 三个本校域名 |
-| **`docs/screenshots/gui-main.png`** | 整张图 | 截图里有课程号与通知标题 |
+| `canvas_helper/auth.py` | `CANVAS_HOME`、cookie 白名单里的学校域名 | 改为配置项 `canvas_home`（`config.json`），cookie 整上下文保存，SSO 域名不再硬编码 |
+| `canvas_helper/canvas_api.py` | 回退用的 `html_url` 兜底 | 改走 `self.s.url(...)`，由 `canvas_home` 拼接 |
+| `canvas_helper/extras.py` | 公告回退链接里的域名 | 同上（`api.s.url(...)`） |
+| `canvas_helper/deskbox.py` | 待办备注链接正则里的域名 | 按 `canvas_home` 动态编译 |
+| `canvas_helper/gui.py` | 「打开 Canvas」按钮固定链接 | 改读 `canvas_home`；设置页新增「Canvas 站点地址」输入框 |
+| `canvas_helper/classify.py`、注释 | 真实课程号示例 | 全部换成示例号 `CS0001`…`CS0006` |
+| `tests/smoke.py`、`tests/test_canvas_api.py` | 真实课程 id、课程号、域名 | 换成 `10001`…`10006` / `CS000x` / `canvas.example.edu` |
+| **`README.md`** | 「安全与隐私」等节的本校域名 | 改为「你配置的 Canvas 站点与 SSO 域名」的通用表述 |
+| **`docs/screenshots/gui-main.png`** | 整张图（课程号 + 通知标题） | **已删除**（无法文本替换），README 移除引用 |
 
-> ⚠️ **截图无法文本替换**。转公开前请**重新截一张干净的**
-> （先在 GUI 里清空或换一个无敏感数据的账号），或者直接从 README 里移除。
-> 用 `scripts\capture_gui.ps1 -OutPath <路径>` 重新生成。
+另在**历史层面**（当前树 scrub 不覆盖旧提交）执行了：
+
+- `git filter-repo`：全部提交的作者/提交者邮箱 → GitHub noreply；文件内容里的
+  域名、课程号、课程 id、本机路径逐字替换；截图从所有历史提交中移除；
+- `git filter-branch --msg-filter`：提交标题/正文里的同类词一并替换；
+- 完成后 force push，`git log -S` 复核敏感词零命中，再 `gh repo edit` 转 public。
 
 `LICENSE` 与 README 徽章里的 GitHub 用户名 `Botherain` 保留，那是署名。
 
@@ -80,10 +81,9 @@ python -m build
 
 只执行 `python -m build` 出 sdist 与 wheel 来**证明打包配置没坏**。
 
-> **刻意不上传 PyPI。** 上传即等于把代码公开，与第 3 节的 scrub 冲突——
-> 而 scrub 需要重新设计配置项（域名与课程号改成可配置），
-> 那是转公开时才做的事。CI 每次推送都跑 `pip install -e .`，
-> 已经足以持续验证 `pyproject.toml` 没写坏。
+> **刻意不上传 PyPI。** 上传即等于把代码公开。第 3 节的 scrub 已随转公开
+> 执行完毕（域名与课程号已配置化/示例化），是否上 PyPI 另行决定；
+> CI 每次推送都跑 `pip install -e .`，已经足以持续验证 `pyproject.toml` 没写坏。
 
 ## 5. 代码签名（需要花钱 / 需要你本人操作）
 

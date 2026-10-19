@@ -42,9 +42,9 @@ def cfg() -> dict:
 
 
 @pytest.fixture(scope="session")
-def folders(cfg: dict) -> dict:
-    """[1]/[3] 共用：真实课程根，没有就按 COURSE_FIXTURE 临时造一份。"""
-    root, tmp = smoke.build_course_root(cfg)
+def folders() -> dict:
+    """[1]/[3] 共用：按 COURSE_FIXTURE 临时造课程根（与机器无关，见 build_course_root）。"""
+    root, tmp = smoke.build_course_root()
     yield smoke.course_dirs(root)
     if tmp is not None:
         shutil.rmtree(tmp, ignore_errors=True)

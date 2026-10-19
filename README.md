@@ -11,10 +11,6 @@
 
 <p align="center">
   <img src="docs/icons/canvashelper.png" alt="应用图标" width="96">
-  <br>
-  <img src="docs/screenshots/gui-main.png" alt="主界面：通知 / 公告聚合" width="860">
-  <br>
-  <sub>主界面 —— 通知聚合页。顶部五个标签：课程同步、待办（DeskBox）、通知 / 公告、成绩、设置。</sub>
 </p>
 
 ## 功能
@@ -99,10 +95,11 @@ canvas-helper sync --headless    # 后台同步（计划任务用的就是它）
 
 ### 首次配置
 
-程序不需要预先写配置——三项路径会自动处理：
+程序不需要预先写配置——四项会自动/引导处理：
 
 | 配置项 | 默认行为 |
 | --- | --- |
+| `canvas_home` Canvas 站点地址 | **必填**：在「设置」页填你学校的 Canvas 地址（如 `https://canvas.example.edu`），未填写时同步会明确报错 |
 | `classes_root` 课程根目录 | 取 `<用户目录>\CanvasCourses`，在「设置」页**浏览…**改成你的目录 |
 | `deskbox.todo_path` | 自动扫描 `%LOCALAPPDATA%\DeskBox\data\widgets\*\todo.json`，取条目最多的那个 |
 | `deskbox.exe_path` | 按常见安装位置搜索 `DeskBox.exe` |
@@ -161,8 +158,8 @@ canvas-helper sync --headless    # 后台同步（计划任务用的就是它）
 
 ## 安全与隐私
 
-- **联网范围很窄**：只访问你学校的 Canvas 站点与完成登录所需的 SSO 域名
-  （本校实测为 `canvas.example.edu` / `auth.example.edu` / `sso.canvaslms.com`），
+- **联网范围很窄**：只访问你在配置里填写的 Canvas 站点与完成登录所需的 SSO 域名
+  （由你学校的登录流程决定，如 `sso.canvaslms.com`），
   **不连任何第三方服务器**；无遥测、无统计、无任何数据上报。
 - **数据只在本机**：配置、同步状态、日志、登录态全在 `%LOCALAPPDATA%\CanvasHelper\`
   （见 [数据目录](#数据目录)），课程文件落在你自己的课程根目录。
@@ -410,8 +407,7 @@ CanvasHelper\
 ├─ docs\
 │  ├─ icons\canvashelper.ico    应用图标（圆角、四角透明；16~128 BMP + 256 PNG 七档）
 │  ├─ icons\canvashelper.png    图标预览（README 顶部展示）
-│  ├─ screenshots\gui-main.png  主界面截图
-│  └─ RELEASING.md              发布流程 / 转公开 scrub 清单 / 打包双轨 / 代码签名方案
+│  └─ RELEASING.md              发布流程 / 打包双轨 / 代码签名方案
 ├─ .github\
 │  ├─ workflows\ci.yml      lint（ruff + mypy）+ 离线自检 × Python 3.11~3.14
 │  └─ ISSUE_TEMPLATE\       Bug / 功能建议的 issue forms

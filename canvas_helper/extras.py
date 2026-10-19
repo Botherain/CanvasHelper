@@ -51,7 +51,7 @@ def collect_notices(
                 title=html.unescape(r.get("title") or "(无标题)"),
                 body=_strip_html(r.get("message") or "", 400),
                 posted_at=(r.get("posted_at") or r.get("created_at") or "")[:19].replace("T", " "),
-                url=r.get("html_url") or f"https://canvas.example.edu/courses/{c.id}",
+                url=r.get("html_url") or api.s.url(f"/courses/{c.id}"),
                 kind="announcement",
             )
             for r in rows

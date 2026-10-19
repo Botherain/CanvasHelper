@@ -180,7 +180,7 @@ class CanvasAPI:
                     name=c.get("name") or c.get("course_code") or str(c["id"]),
                     code=c.get("course_code") or "",
                     workflow_state=c.get("workflow_state") or "available",
-                    html_url=c.get("html_url") or f"https://canvas.example.edu/courses/{c['id']}",
+                    html_url=c.get("html_url") or self.s.url(f"/courses/{c['id']}"),
                 )
             )
         out.sort(key=lambda c: c.short)
@@ -511,7 +511,7 @@ class CanvasAPI:
                 module_name=module_name,
                 title=decode_name(name),
                 kind="File",
-                html_url=meta.get("html_url") or f"https://canvas.example.edu/files/{file_id}",
+                html_url=meta.get("html_url") or self.s.url(f"/files/{file_id}"),
                 file_id=file_id,
                 file_name=name,
                 file_url=meta.get("url"),
@@ -573,7 +573,8 @@ class CanvasAPI:
                         module_name="",
                         title=title,
                         kind="Assignment",
-                        html_url=a.get("html_url") or f"https://canvas.example.edu/courses/{course_id}/assignments/{aid}",
+                        html_url=a.get("html_url") or self.s.url(
+                            f"/courses/{course_id}/assignments/{aid}"),
                         due_at=due,
                         points=a.get("points_possible"),
                         extra=a,
@@ -684,8 +685,8 @@ class CanvasAPI:
                 module_name="",
                 title=title or f"讨论 {tid}",
                 kind="Discussion",
-                html_url=t.get("html_url") or (
-                    f"https://canvas.example.edu/courses/{course_id}/discussion_topics/{tid}"),
+                html_url=t.get("html_url") or self.s.url(
+                    f"/courses/{course_id}/discussion_topics/{tid}"),
                 file_id=tid if isinstance(tid, int) else None,
                 extra={"message": msg, "topic_id": tid},
             ))

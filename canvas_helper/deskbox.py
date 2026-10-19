@@ -13,17 +13,29 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .canvas_api import Course, Item
-from .paths import PENDING_PATH, get_logger, load_state, now_hk, save_state
+from .paths import PENDING_PATH, canvas_home, get_logger, load_state, now_hk, save_state
 
 log = get_logger()
 HK = ZoneInfo("Asia/Hong_Kong")
 
-CANVAS_URL_RE = re.compile(r"https?://canvas\.example\.edu[^\s)\]>]*", re.IGNORECASE)
 HTML_RE = re.compile(r"<[^>]+>")
+
+
+@lru_cache(maxsize=8)
+def _url_re_for(home: str) -> re.Pattern[str]:
+    """按配置的站点地址编译待办备注里的链接抽取式（站点换学校即换）。"""
+    if not home:
+        return re.compile(r"(?!)")  # 未配置站点：不匹配任何链接，去重退回 text|due 键
+    return re.compile(re.escape(home) + r"[^\s)\]>]*", re.IGNORECASE)
+
+
+def _canvas_url_re() -> re.Pattern[str]:
+    return _url_re_for(canvas_home())
 
 
 @dataclass
@@ -162,9 +174,10 @@ def load_doc(path: Path) -> dict:
 
 def _existing_keys(doc: dict) -> set[str]:
     keys: set[str] = set()
+    url_re = _canvas_url_re()
     for it in doc.get("items", []):
         notes = it.get("notes") or ""
-        m = CANVAS_URL_RE.search(notes)
+        m = url_re.search(notes)
         if m:
             keys.add(m.group(0).rstrip(".,;"))
         keys.add(f"{it.get('text','')}|{it.get('dueDate')}")
@@ -179,9 +192,10 @@ def _index_items(doc: dict) -> tuple[dict[str, dict], dict[str, dict]]:
     """(按唯一键索引, 按归一化文本索引) -> todo.json 里的条目。"""
     by_key: dict[str, dict] = {}
     by_text: dict[str, dict] = {}
+    url_re = _canvas_url_re()
     for it in doc.get("items", []):
         notes = it.get("notes") or ""
-        m = CANVAS_URL_RE.search(notes)
+        m = url_re.search(notes)
         if m:
             by_key.setdefault(m.group(0).rstrip(".,;"), it)
         by_key.setdefault(f"{it.get('text','')}|{it.get('dueDate')}", it)

@@ -36,7 +36,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SRC = Path(r"%USERPROFILE%\Downloads\CanvasHelper.jpg")
+DEFAULT_SRC = Path.home() / "Downloads" / "CanvasHelper.jpg"
 ICO_PATH = ROOT / "docs" / "icons" / "canvashelper.ico"
 PREVIEW_PATH = ROOT / "docs" / "icons" / "canvashelper.png"
 

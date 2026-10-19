@@ -8,12 +8,11 @@ from collections.abc import Callable
 from contextlib import suppress
 from typing import TYPE_CHECKING
 
-from .paths import PROFILE_DIR, clear_auth_needed, get_logger
+from .paths import PROFILE_DIR, canvas_home, clear_auth_needed, get_logger
 
 if TYPE_CHECKING:
     from playwright.sync_api import BrowserContext, Playwright
 
-CANVAS_HOME = "https://canvas.example.edu/"
 LOGIN_PROBE = "/api/v1/users/self/profile"
 log = get_logger()
 
@@ -21,12 +20,9 @@ StatusCb = Callable[[str], None]
 
 # Chromium 的 headless 模式不会加载 profile 里已落盘的 cookie（已实测：磁盘上有、
 # headless 上下文读不到），因此改为显式导出/导入 cookie，两条路径都可靠。
+# 站点地址来自配置（canvas_home），SSO 域名各校不同——本上下文只打开过 Canvas
+# 与其登录流程，所以整上下文 cookie 全存，换任何学校都适用。
 SESSION_PATH = PROFILE_DIR.parent / "session.json"
-COOKIE_URLS = [
-    "https://canvas.example.edu/",
-    "https://auth.example.edu/",
-    "https://sso.canvaslms.com/",
-]
 
 
 def _noop(_: str) -> None:
@@ -118,7 +114,7 @@ class CanvasSession:
         if self._ctx is None:
             return
         try:
-            rows = self._ctx.cookies(COOKIE_URLS)
+            rows = self._ctx.cookies()
             SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
             SESSION_PATH.write_text(json.dumps(rows, indent=1), encoding="utf-8")
             log.debug("已保存 %d 个 cookie -> %s", len(rows), SESSION_PATH)
@@ -147,7 +143,11 @@ class CanvasSession:
         """/api/v1/... -> 绝对地址。"""
         if path.startswith("http"):
             return path
-        return CANVAS_HOME.rstrip("/") + "/" + path.lstrip("/")
+        home = canvas_home()
+        if not home:
+            raise RuntimeError(
+                "未配置 Canvas 站点地址：请在设置页「Canvas 站点地址」填写（config.json 的 canvas_home）")
+        return home + "/" + path.lstrip("/")
 
     def api_get(self, path: str, params: dict | None = None, timeout: int | None = None):
         """返回 (status_code, parsed_json_or_text)。带登录 cookie。"""
@@ -192,6 +192,10 @@ class CanvasSession:
 
     def ensure_login(self, on_status: StatusCb = _noop, timeout_s: int = 1200) -> bool:
         """确保已登录。必要时打开可见浏览器窗口等待用户完成 SSO/2FA。"""
+        if not canvas_home():
+            on_status("未配置 Canvas 站点地址")
+            raise RuntimeError(
+                "未配置 Canvas 站点地址：请在设置页「Canvas 站点地址」填写（config.json 的 canvas_home）")
         on_status("检查登录状态…")
         self.start(headless=True)
         if self.is_logged_in():
@@ -205,7 +209,7 @@ class CanvasSession:
             raise RuntimeError("浏览器会话未能启动")
         page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
         try:
-            page.goto(CANVAS_HOME, wait_until="domcontentloaded", timeout=60_000)
+            page.goto(canvas_home() + "/", wait_until="domcontentloaded", timeout=60_000)
         except Exception as exc:
             log.warning("打开 Canvas 失败: %s", exc)
 

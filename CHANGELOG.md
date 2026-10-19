@@ -7,6 +7,22 @@
 
 ## [未发布]
 
+### 发布准备 · 转公开前的去标识化
+
+- **院校信息移除**：硬编码的学校域名全部改为配置项 `canvas_home`
+  （`config.json` + 设置页「Canvas 站点地址」输入框，未配置时同步明确报错）；
+  `auth.py` 的 cookie 白名单改为整上下文保存（SSO 域名随学校自动适配）；
+  `canvas_api` / `extras` 的 `html_url` 兜底、`deskbox` 的链接正则、
+  GUI「打开 Canvas」按钮全部改读该配置——本工具不再绑定任何特定院校。
+- **真实课程号/课程 id 示例化**：文档、注释、测试 fixture 与断言里的
+  6 个真实课程号换成 `CS0001`…`CS0006`，课程 id 换成 `10001`…`10006`，
+  测试域名统一 `canvas.example.edu`。
+- **移除含真实数据的截图**：`docs/screenshots/gui-main.png`（含课程号与通知标题，
+  无法文本替换）连同 README 引用一并删除。
+- **历史提交同步清洗**：作者/提交者邮箱换 GitHub noreply，旧提交的文件内容与
+  提交信息里的域名、课程号、本机路径逐字替换，截图从全部历史中移除，force push。
+- `scripts/make_icon.py` 的默认源图路径改 `Path.home()/Downloads/…`，不再含用户名。
+
 ### 新增 · 讨论区 Colab/GitHub 链接与帖子快照
 
 - **教程不再手动另存**：CS0004 的 tutorial 以 Colab 链接发在讨论区，现在会直接

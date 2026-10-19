@@ -107,12 +107,13 @@ COURSE_FIXTURE = {
 # 共用准备（pytest 用 fixture 调，脚本用 main() 调；断言与准备分开，
 # 这样 [1]/[3] 能共享 folders、[5]/[7] 能共享 draft 上下文而不重复跑断言）
 # --------------------------------------------------------------------------- #
-def build_course_root(cfg: dict) -> tuple[Path, Path | None]:
-    """返回 (课程根, 临时造出来的根或 None)。临时根由调用方负责删除。"""
-    root = Path(cfg["classes_root"])
-    if root.is_dir():
-        return root, None
-    # CI / 新机器没有真实课程目录：按蓝本造一份，保证测试自洽且与机器无关
+def build_course_root() -> tuple[Path, Path]:
+    """返回 (课程根, 临时蓝本根)，两者相同，由调用方负责删除。
+
+    始终按 ``COURSE_FIXTURE`` 造临时根：测试必须在任何机器上自洽——
+    真实课程根的目录名因人而异（课程号、命名习惯都不同），
+    不能进断言；识别真实目录的能力由历史标定保证。
+    """
     fixture_root = Path(tempfile.mkdtemp(prefix="ch_courses_"))
     for course, subs in COURSE_FIXTURE.items():
         for sub in subs:
@@ -976,7 +977,7 @@ def s12_discussions() -> None:
 # --------------------------------------------------------------------------- #
 def main() -> int:
     cfg = load_config()
-    root, fixture_root = build_course_root(cfg)
+    root, fixture_root = build_course_root()
     folders = course_dirs(root)
     c, res = build_drafts_ctx(cfg)
 

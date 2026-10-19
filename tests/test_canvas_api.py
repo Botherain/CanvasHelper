@@ -168,7 +168,7 @@ def test_页面正文抓取结果会被缓存():
 def test_页面正文里的死链被容错跳过():
     cid = 10003
     routes = _routes_for_degraded_course(cid)
-    # 文件元数据 404（实测 10005 的 99999999 就是这样）
+    # 文件元数据 404（死链示例：/files/{id} 查不到时按 404 跳过）
     routes["/api/v1/files/111"] = _Resp(404, text="gone")
     routes[f"/api/v1/courses/{cid}/pages/week-1"] = {
         "body": '<a href="/courses/10003/files/111">gone</a>',
