@@ -9,7 +9,7 @@ import os
 import shutil
 import sys
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -76,6 +76,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # 你学校的 Canvas 站点地址（结尾不带 /），例如 https://canvas.example.edu。
     # 留空 -> 启动后在设置页「Canvas 站点地址」填写，未配置时同步会明确报错。
     "canvas_home": "",
+    # 时区（IANA 名，如 Asia/Hong_Kong / America/New_York / Asia/Shanghai）。
+    # 留空 -> 跟随**本机系统时区**。它决定截止时间的显示、过期判定与每周摘要
+    # 的周界；写错会导致待办里的截止时刻整体偏几个小时。
+    "timezone": "",
+    # 课程代码提取用的自定义正则（可选）。留空 -> 用通用规则
+    # （字母前缀 + 数字，如 CS5187 / MATH101）；院校的课程代码形态古怪时，
+    # 在这里写一个正则（第一个捕获组优先，没有捕获组则取整个匹配）。
+    "course_code_pattern": "",
     # 课程根目录（每个课程一个子文件夹）。留空 -> 启动时取 <用户目录>/CanvasCourses，
     # 在设置页「浏览…」选成你自己的目录。
     "classes_root": "",
@@ -248,8 +256,8 @@ def _resolve_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
 _cfg_cache: tuple[tuple[str, int, int], dict[str, Any]] | None = None
 
 
-def load_config() -> dict[str, Any]:
-    """读配置（带 mtime 缓存）。返回的是副本，调用方改写自己那份不会污染缓存。"""
+def _config_cached() -> dict[str, Any]:
+    """返回**缓存本体**（不复制）。仅供内部只读用途，外部请用 load_config。"""
     global _cfg_cache
     try:
         st = CONFIG_PATH.stat()
@@ -259,7 +267,7 @@ def load_config() -> dict[str, Any]:
         return _resolve_defaults(copy.deepcopy(DEFAULT_CONFIG))
     key = (str(CONFIG_PATH), st.st_mtime_ns, st.st_size)
     if _cfg_cache is not None and _cfg_cache[0] == key:
-        return copy.deepcopy(_cfg_cache[1])
+        return _cfg_cache[1]
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         cfg = _resolve_defaults(_deep_merge(DEFAULT_CONFIG, data))
@@ -267,12 +275,25 @@ def load_config() -> dict[str, Any]:
         get_logger().exception("配置文件读取失败，使用默认配置: %s", CONFIG_PATH)
         cfg = _resolve_defaults(copy.deepcopy(DEFAULT_CONFIG))
     _cfg_cache = (key, cfg)
-    return copy.deepcopy(cfg)
+    return cfg
+
+
+def load_config() -> dict[str, Any]:
+    """读配置（带 mtime 缓存）。返回的是副本，调用方改写自己那份不会污染缓存。"""
+    return copy.deepcopy(_config_cached())
+
+
+def cfg_str(key: str, default: str = "") -> str:
+    """读配置里的一个字符串项（不复制整份配置，热路径用）。"""
+    val = _config_cached().get(key)
+    if val is None:
+        return default
+    return str(val).strip()
 
 
 def canvas_home() -> str:
     """配置里的 Canvas 站点地址（不带结尾斜杠）；未配置时返回空串。"""
-    return (load_config().get("canvas_home") or "").strip().rstrip("/")
+    return cfg_str("canvas_home").rstrip("/")
 
 
 def cfg_discussions(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -334,7 +355,7 @@ def mark_auth_needed(source: str = "") -> None:
     而不是只留一条没人会看的 sync.log。
     """
     state = load_state()
-    state["auth_needed"] = {"at": now_hk().isoformat(timespec="seconds"), "source": source}
+    state["auth_needed"] = {"at": now_local().isoformat(timespec="seconds"), "source": source}
     save_state(state)
 
 
@@ -350,9 +371,57 @@ def clear_auth_needed() -> bool:
 # 与 deskbox / extras 的写法一致：时区常量提模块级，不再每次调用现 import + 构造
 HK = ZoneInfo("Asia/Hong_Kong")
 
+#: 时区解析缓存：(配置里的时区名, 解析结果)。None 表示「跟随系统本地时区」。
+_tz_cache: tuple[str, tzinfo | None] | None = None
+
+
+def tz() -> tzinfo | None:
+    """配置指定的时区；``None`` 表示「跟随本机系统时区」。
+
+    配置项 ``timezone`` 写 IANA 名（如 ``America/New_York``）时返回对应
+    ``ZoneInfo``；留空则返回 None，由 :func:`to_local` / :func:`now_local` 走
+    系统本地时区（``astimezone()`` 无参形式，夏令时由系统自己处理）。
+    名称非法时回落系统时区并记一条警告，绝不让同步崩掉。
+    """
+    global _tz_cache
+    name = cfg_str("timezone")
+    if _tz_cache is not None and _tz_cache[0] == name:
+        return _tz_cache[1]
+    zone: tzinfo | None = None
+    if name:
+        try:
+            zone = ZoneInfo(name)
+        except Exception as exc:  # ZoneInfoNotFoundError / ValueError 等
+            get_logger().warning("时区配置无效（%s），改用系统时区: %s", name, exc)
+            zone = None
+    _tz_cache = (name, zone)
+    return zone
+
+
+def to_local(dt: datetime, zone: tzinfo | None = None) -> datetime:
+    """把带时区的时间转换到本地时区（naive 视为 UTC）。
+
+    配了 ``timezone`` 就按它转；没配则按系统本地时区转（夏令时自动处理）。
+    批量处理时可以先取一次 :func:`tz` 再传进来，省掉重复读配置。
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    if zone is None:
+        zone = tz()
+    return dt.astimezone(zone) if zone is not None else dt.astimezone()
+
+
+def now_local() -> datetime:
+    """当前时间（本地时区，取决于配置 ``timezone``）。"""
+    return to_local(datetime.now(UTC))
+
 
 def now_hk() -> datetime:
-    return datetime.now(UTC).astimezone(HK)
+    """兼容别名：等同 :func:`now_local`。
+
+    历史名（now_hk / HK）保留只为不破坏既有调用，新代码一律用 now_local / to_local。
+    """
+    return now_local()
 
 
 def ensure_dirs() -> None:

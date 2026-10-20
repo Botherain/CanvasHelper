@@ -31,7 +31,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .classify import sanitize, unique_path
-from .paths import get_logger, load_config, now_hk
+from .paths import get_logger, load_config, now_local
 
 log = get_logger()
 
@@ -302,7 +302,7 @@ def process(path: Path, state: dict, cfg: dict | None = None,
                           int(rec.get("count") or 0), str(rec.get("reason") or ""))
 
     kind, reason = classify(path, cfg)
-    at = now_hk().isoformat(timespec="seconds")
+    at = now_local().isoformat(timespec="seconds")
     if kind != "content":
         store[key] = {"kind": kind, "reason": reason, "size": size, "at": at}
         if progress and kind in ("data", "unsupported", "broken"):

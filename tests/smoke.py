@@ -36,6 +36,7 @@ from canvas_helper.classify import (  # noqa: E402
     resolve_dir,
     sanitize,
 )
+from canvas_helper.coursecode import course_code, dir_key  # noqa: E402
 from canvas_helper.deskbox import (  # noqa: E402
     TodoDraft,
     build_drafts,
@@ -44,7 +45,7 @@ from canvas_helper.deskbox import (  # noqa: E402
     merge,
     preview_status,
 )
-from canvas_helper.paths import DEFAULT_CONFIG, load_config  # noqa: E402
+from canvas_helper.paths import DEFAULT_CONFIG, load_config, to_local  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -253,11 +254,20 @@ def s4_sanitize() -> None:
 
 
 def s5_drafts(c: Course, res, cfg: dict) -> None:
+    from datetime import datetime
+
     print("\n[5] 待办草稿 + 合并（副本，不碰真实文件）")
     check("跳过已过期", res.skipped_past == 1, str(res.skipped_past))
     check("生成 2 条草稿", len(res.drafts) == 2, str(len(res.drafts)))
     d0 = res.drafts[0]
-    check("时区为 +08:00", d0.due.strftime("%z") == "+0800", str(d0.due))
+    # 断言与机器时区无关：草稿的截止时间必须**按本地时区**呈现（配置 timezone
+    # 优先，否则跟随系统），而不是写死 +08:00——否则换时区的机器/CI 会误报。
+    check("截止时间按本地时区呈现",
+          d0.due.utcoffset() == to_local(d0.due).utcoffset()
+          and d0.due.strftime("%z") == to_local(d0.due).strftime("%z"),
+          str(d0.due))
+    check("截止时间与 Canvas 给的绝对时刻一致",
+          d0.due == datetime.fromisoformat("2026-11-20T15:59:00+00:00"), str(d0.due))
     check("文本带课程代码", d0.text.startswith("CS0001"), d0.text)
     check("作业标红", d0.color == "red", d0.color)
     check("项目标橙", res.drafts[1].color == "orange", res.drafts[1].color)
@@ -286,7 +296,10 @@ def s5_drafts(c: Course, res, cfg: dict) -> None:
     check("总条目 +2", len(doc["items"]) == before + 2)
     doc2, added2 = merge(doc, res.drafts, 1440)
     check("重复合并不产生重复", len(added2) == 0, str(len(added2)))
-    new_items = [i for i in doc2["items"] if i.get("dueDate", "").startswith("2026-11-20")]
+    # 按绝对时刻找新条目（不写死日期前缀：写进去的 dueDate 带本地时区偏移）
+    new_items = [i for i in doc2["items"]
+                 if str(i.get("dueDate", "")).startswith(
+                     to_local(datetime.fromisoformat("2026-11-20T15:59:00+00:00")).strftime("%Y-%m-%d"))]
     check("新条目字段齐全",
           all(k in new_items[0] for k in
               ("id", "text", "isCompleted", "colorMarker", "dueDate", "notes",
@@ -972,6 +985,97 @@ def s12_discussions() -> None:
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def s13_universal() -> None:
+    """[13] 跨院校通用化：课程代码提取 + 目录匹配 + 时区。"""
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    print("\n[13] 跨院校通用化（课程代码 / 目录匹配 / 时区）")
+
+    # ---- 课程代码提取：各校形态 ----
+    cases = [
+        # (course_code, 课程名, 期望)
+        ("202609CS5187", "CS5187 Vision and Image", "CS5187"),
+        ("202609CS5489", "CS5489 Machine Learning:Algorithms &Apns", "CS5489"),
+        ("MATH 101", "Calculus I", "MATH101"),
+        ("ECON2201", "Macroeconomics", "ECON2201"),
+        ("BIO-220", "Cell Biology", "BIO220"),
+        ("CS 114", "Programming", "CS114"),
+        ("", "Introduction to CS101", "CS101"),
+        ("", "MATH 202 - Advanced Calculus", "MATH202"),
+        # 多段码不拆开（数字属于编码本身，不是课程号）
+        ("SD_GEN_SFTY_CS_MCS_2026", "Safety Training for MSc Students (CS)",
+         "SD_GEN_SFTY_CS_MCS_2"),
+        ("SD_ANTI_DECEPTION_2026-27_0", "防诈反诈问卷（已完成）", "SD_ANTI_DECEPTION_20"),
+    ]
+    for code, name, want in cases:
+        got = course_code(code, name)
+        check(f"课程代码 {code or name!r} -> {want}", got == want, f"got={got!r}")
+
+    # 课程代码在 Canvas 的 Course.short 上同样生效
+    c1 = Course(id=1, name="CS5187 Vision and Image", code="202609CS5187")
+    check("Course.short 剥掉学期前缀", c1.short == "CS5187", c1.short)
+    c2 = Course(id=2, name="Calculus I", code="MATH 101")
+    check("Course.short 兼容别的学校写法", c2.short == "MATH101", c2.short)
+
+    # 自定义正则（配置项 course_code_pattern）：有捕获组取捕获组，无捕获组取整段
+    check("自定义正则取捕获组",
+          course_code("XY-9999", "任意课名", pat=r"XY-(\d+)") == "9999",
+          course_code("XY-9999", "任意课名", pat=r"XY-(\d+)"))
+    check("自定义正则无捕获组取整段",
+          course_code("XY-9999", "任意课名", pat=r"XY-\d+") == "XY9999",
+          course_code("XY-9999", "任意课名", pat=r"XY-\d+"))
+    check("非法正则不炸", course_code("MATH 101", "", pat=r"([unclosed") == "MATH101",
+          course_code("MATH 101", "", pat=r"([unclosed"))
+
+    # ---- 本地目录匹配：别的学校目录名也要认 ----
+    check("目录名取课程代码",
+          dir_key("MATH 101 - Calculus") == "MATH101", dir_key("MATH 101 - Calculus"))
+    check("目录名无代码则用整名",
+          dir_key("Introduction to CS") == "INTRODUCTION TO CS",
+          dir_key("Introduction to CS"))
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="ch_univ_"))
+    try:
+        for d in ("MATH 101 - Calculus", "ECON 2201 - Macroeconomics", "CS5187 - Vision and Image"):
+            (tmpdir / d).mkdir(parents=True)
+        folders = course_dirs(tmpdir)
+        check("识别出 3 门课", len(folders) == 3, str(list(folders)))
+        check("MATH101 匹配到 MATH 101 - Calculus",
+              (match_folder("MATH101", folders) or Path()).name == "MATH 101 - Calculus",
+              str(match_folder("MATH101", folders)))
+        check("MATH 101（带空格）同样匹配",
+              (match_folder("MATH 101", folders) or Path()).name == "MATH 101 - Calculus",
+              str(match_folder("MATH 101", folders)))
+        check("ECON2201 匹配到 ECON 2201 - Macroeconomics",
+              (match_folder("ECON2201", folders) or Path()).name == "ECON 2201 - Macroeconomics",
+              str(match_folder("ECON2201", folders)))
+        check("CS5187 匹配到 CS5187 - Vision and Image",
+              (match_folder("CS5187", folders) or Path()).name == "CS5187 - Vision and Image",
+              str(match_folder("CS5187", folders)))
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    # ---- 时区：截止时间按配置时区换算 ----
+    utc_due = datetime.fromisoformat("2026-11-20T15:59:00+00:00")
+    check("未配置时区 -> 跟随系统本地",
+          to_local(utc_due).utcoffset() == utc_due.astimezone().utcoffset(),
+          str(to_local(utc_due)))
+    check("配置时区生效（+08:00）",
+          to_local(utc_due, ZoneInfo("Asia/Hong_Kong")).strftime("%z") == "+0800",
+          str(to_local(utc_due, ZoneInfo("Asia/Hong_Kong"))))
+    check("配置时区生效（美东 -05:00）",
+          to_local(utc_due, ZoneInfo("America/New_York")).strftime("%z") == "-0500",
+          str(to_local(utc_due, ZoneInfo("America/New_York"))))
+    check("配置时区生效（内地 +08:00）",
+          to_local(utc_due, ZoneInfo("Asia/Shanghai")).strftime("%z") == "+0800",
+          str(to_local(utc_due, ZoneInfo("Asia/Shanghai"))))
+    # 同一绝对时刻在任何时区下换算结果一致（不该因时区而错判截止时间）
+    check("换时区不改变绝对时刻",
+          to_local(utc_due, ZoneInfo("America/New_York")).astimezone(UTC) == utc_due,
+          str(to_local(utc_due, ZoneInfo("America/New_York"))))
+
+
 # --------------------------------------------------------------------------- #
 # 脚本入口
 # --------------------------------------------------------------------------- #
@@ -997,6 +1101,7 @@ def main() -> int:
     s10_extract()
     s11_tidy()
     s12_discussions()
+    s13_universal()
 
     if fixture_root is not None:
         shutil.rmtree(fixture_root, ignore_errors=True)

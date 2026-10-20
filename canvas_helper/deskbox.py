@@ -19,9 +19,19 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .canvas_api import Course, Item
-from .paths import PENDING_PATH, canvas_home, get_logger, load_state, now_hk, save_state
+from .paths import (
+    PENDING_PATH,
+    canvas_home,
+    get_logger,
+    load_state,
+    now_local,
+    save_state,
+    to_local,
+)
 
 log = get_logger()
+#: 兼容别名：历史常量（香港时区）。新代码请用 :func:`canvas_helper.paths.to_local`
+#: ——它跟随配置项 ``timezone``，换学校时才不会把截止时间算错几个小时。
 HK = ZoneInfo("Asia/Hong_Kong")
 
 HTML_RE = re.compile(r"<[^>]+>")
@@ -83,7 +93,7 @@ def _parse_due(value: str | None) -> datetime | None:
         return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(HK)
+    return to_local(dt)
 
 
 def _fmt_due(dt: datetime) -> str:
@@ -114,7 +124,7 @@ def build_drafts(
     """把需要提交的项变成待办草稿。"""
     result = TodoBuildResult()
     attachment_lookup = attachment_lookup or {}
-    cutoff = now_hk()
+    cutoff = now_local()
 
     for cid, items in items_by_course.items():
         course = courses.get(cid)
@@ -154,7 +164,7 @@ def build_drafts(
                     attachment=attach,
                 )
             )
-    result.drafts.sort(key=lambda d: d.due or now_hk())
+    result.drafts.sort(key=lambda d: d.due or now_local())
     return result
 
 

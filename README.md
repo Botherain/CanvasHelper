@@ -101,12 +101,52 @@ canvas-helper sync --headless    # 后台同步（计划任务用的就是它）
 | --- | --- |
 | `canvas_home` Canvas 站点地址 | **必填**：在「设置」页填你学校的 Canvas 地址（如 `https://canvas.example.edu`），未填写时同步会明确报错 |
 | `classes_root` 课程根目录 | 取 `<用户目录>\CanvasCourses`，在「设置」页**浏览…**改成你的目录 |
+| `timezone` 时区 | 留空 = **跟随本机系统时区**；要固定就填 IANA 名（如 `Asia/Hong_Kong`、`America/New_York`、`Asia/Shanghai`） |
+| `course_code_pattern` 课程代码正则 | 留空 = **自动识别**（字母前缀 + 数字）；学校代码形态古怪时才需要填 |
 | `deskbox.todo_path` | 自动扫描 `%LOCALAPPDATA%\DeskBox\data\widgets\*\todo.json`，取条目最多的那个 |
 | `deskbox.exe_path` | 按常见安装位置搜索 `DeskBox.exe` |
 
 猜错了在「设置」页手改并保存即可。配置模板见
 [`config.example.json`](config.example.json)，实际配置在
 `%LOCALAPPDATA%\CanvasHelper\config.json`（首次运行自动生成，不入库）。
+
+### 适配其他 Canvas 站点
+
+本工具面向**任何用 Canvas（LMS）的学校**，不绑定某一所。站点地址、时区、课程代码
+三处最容易因校而异，其余差异已由代码自动适配。
+
+**1. 站点地址**：填你学校的 Canvas 主页即可（自建托管、Canvas SaaS 都一样）。
+登录走真实浏览器 + 学校 SSO，因此各校的登录域名、2FA 流程都不用你配置。
+
+**2. 时区**（影响截止时间的显示与「是否已过期」的判定）
+留空跟随本机系统时区——多数人这就是对的。要固定就在「设置」页填 IANA 名。
+时区填错会让待办里的截止时刻整体偏几个小时。
+
+**3. 课程代码**：自动识别「字母前缀 + 数字」，并自动剥掉开头的学期前缀：
+
+| Canvas 的 `course_code` | 本工具认出的课程代码 |
+| --- | --- |
+| `202609CS5187` | `CS5187` |
+| `MATH 101` | `MATH101` |
+| `ECON2201` | `ECON2201` |
+| `BIO-220` | `BIO220` |
+| `SD_GEN_SFTY_CS_MCS_2026`（多段码） | 整段保留，不拆 |
+
+课程代码同时用于**匹配本地课程文件夹**（`MATH 101 - Calculus` 会被认成 `MATH101`，
+同步时不会另建一个重复文件夹）。若你学校的代码形态特殊，在「设置」页的
+「课程代码正则」里写一个正则（如 `^([A-Z]{2,4})-?(\d{4})$`）：有捕获组取第一个
+非空捕获组，没有则取整个匹配。
+
+**4. 已自动适配的 Canvas 差异**（无需配置，遇到即降级）
+
+| 差异 | 本工具的做法 |
+| --- | --- |
+| 课程级 `/files` 接口 403 | 改从模块条目、作业描述、页面正文里挖文件 |
+| `/courses/:id/pages` 列表 404 | 改用模块条目的 `page_url` 调 show 接口 |
+| 模块条目不带 `content_details` | 逐个补查文件元信息 |
+| 公告接口不存在 | 自动改用 `discussion_topics?only_announcements=true` |
+| 文件被隐藏 / 锁定 | 跳过并记日志，不打扰你 |
+| 课程代码带学期前缀 | 自动剥掉再匹配本地目录 |
 
 ### 数据目录
 
@@ -383,6 +423,7 @@ CanvasHelper\
 │  ├─ paths.py       路径 / 配置 / 日志 / 状态（数据目录 + 自动发现 + 过期标记）
 │  ├─ auth.py        持久化浏览器 profile + 登录判定 + 过期标记清除
 │  ├─ canvas_api.py  /api/v1 分页封装（课程/模块/页面正文/文件/作业/公告/讨论/成绩）
+│  ├─ coursecode.py  课程代码提取与归一化（跨院校通用）
 │  ├─ classify.py    分类与子目录推断
 │  ├─ filesync.py    下载计划（dry-run）与执行
 │  ├─ deskbox.py     待办合并 / 副本预写 / 关-换-启
@@ -396,7 +437,7 @@ CanvasHelper\
 │  ├─ __init__.py        让用例以 tests.xxx 形式被发现（少了它 mypy 的 tests.* 规则不生效）
 │  ├─ smoke.py           离线自检的实现（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理 / 登录过期）
 │  ├─ conftest.py        pytest 夹具（副作用隔离、课程目录、待办草稿上下文）
-│  ├─ test_smoke.py      把自检按小节交给 pytest 执行（13 个用例）
+│  ├─ test_smoke.py      把自检按小节交给 pytest 执行（14 个用例）
 │  └─ test_canvas_api.py 文件发现退化路径的离线回归（7 个用例，不联网）
 ├─ scripts\
 │  ├─ pyinstaller_entry.py  打包入口（__main__.py 是相对导入，不能当独立脚本分析）
@@ -441,15 +482,15 @@ CanvasHelper\
 
 ```powershell
 python tests\smoke.py      # 脚本入口：逐条 PASS/FAIL，任一失败退出码 1
-python -m pytest           # 同一套断言，按小节拆成 13 个用例
+python -m pytest           # 同一套断言，按小节拆成 14 个用例
 python -m ruff check canvas_helper tests scripts
 python -m mypy
 ```
 
 后三个都是 dev extra 里的工具：`python -m pip install -e ".[dev]"`。
 
-180 项断言全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器
-（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 180/180。
+208 项断言全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器
+（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 208/208。
 
 两种入口共用同一份实现（`tests\smoke.py` 里的 `s1_…`～`s9_…`），因此不会出现
 「脚本绿、pytest 红」的分叉。小节之间只通过夹具共享数据，**任意一节都能单独跑**：

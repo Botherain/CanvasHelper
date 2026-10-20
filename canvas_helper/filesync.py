@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .canvas_api import CanvasAPI, Course, Item
 from .classify import build_local_index, ensure_parent, plan_item, sanitize, unique_path
-from .paths import get_logger, now_hk
+from .paths import get_logger, now_local
 
 log = get_logger()
 ProgressCb = Callable[[str], None]
@@ -224,7 +224,7 @@ def _record(state: dict, course_id: int, item: Item, path: Path, size: int | Non
         "kind": kind,
         "title": item.display_name,
         "course_id": course_id,
-        "synced_at": now_hk().isoformat(timespec="seconds"),
+        "synced_at": now_local().isoformat(timespec="seconds"),
     }
 
 

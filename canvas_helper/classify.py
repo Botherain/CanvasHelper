@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .canvas_api import Item
+from .coursecode import dir_key, normalize_key
 from .paths import DEFAULT_CATEGORIES, get_logger
 
 log = get_logger()
@@ -70,28 +71,36 @@ def sanitize(name: str) -> str:
 
 
 def course_dirs(root: Path) -> dict[str, Path]:
-    """扫描 classes 根目录，返回 课程代码 -> 本地文件夹。"""
+    """扫描 classes 根目录，返回 课程代码 -> 本地文件夹。
+
+    键用与课程代码**同一套**提取规则（见 :mod:`canvas_helper.coursecode`），
+    这样别的学校（``MATH 101 - Calculus``）也能匹配上，而不会每次同步都
+    新建一个重复文件夹。
+    """
     out: dict[str, Path] = {}
     if not root.is_dir():
         return out
     for p in sorted(root.iterdir()):
         if not p.is_dir():
             continue
-        m = re.match(r"^(CS\s*\d{4,5})", p.name, re.IGNORECASE)
-        if m:
-            out[m.group(1).replace(" ", "").upper()] = p
-        else:
-            out[p.name.upper()] = p
+        out[dir_key(p.name)] = p
     return out
 
 
 def match_folder(code: str, folders: dict[str, Path]) -> Path | None:
-    """课程代码匹配本地文件夹，例如 CS0001 -> 'CS0001 - Vision and Image'。"""
-    key = code.replace(" ", "").upper()
-    if key in folders:
-        return folders[key]
+    """课程代码匹配本地文件夹，例如 CS0001 -> 'CS0001 - Vision and Image'。
+
+    比较时忽略空格 / 连字符 / 下划线的差异（``MATH 101`` 与 ``MATH101`` 视为
+    同一个），并保留「前缀匹配」的老行为（目录键比课程代码更长时也算命中）。
+    """
+    key = normalize_key(code)
+    if not key:
+        return None
     for k, v in folders.items():
-        if k.startswith(key):
+        if normalize_key(k) == key:
+            return v
+    for k, v in folders.items():
+        if normalize_key(k).startswith(key):
             return v
     return None
 

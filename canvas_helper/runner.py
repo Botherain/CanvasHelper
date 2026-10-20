@@ -6,7 +6,7 @@ import ctypes
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import deskbox, extras
@@ -19,7 +19,7 @@ from .paths import (
     load_config,
     load_state,
     mark_auth_needed,
-    now_hk,
+    now_local,
     save_state,
 )
 
@@ -322,7 +322,7 @@ def run_sync(
                 res.errors.append(f"通知读取失败: {exc}")
 
         state = load_state()
-        state["last_sync"] = now_hk().isoformat(timespec="seconds")
+        state["last_sync"] = now_local().isoformat(timespec="seconds")
         save_state(state)
         progress("同步完成")
         return res
@@ -391,13 +391,17 @@ def run_report(cfg: dict | None = None, headless: bool = False, progress: Progre
         api = CanvasAPI(session)
         courses, folders = resolve_courses(cfg, api)
 
-        week_start = now_hk() - timedelta(days=7)
+        week_start = now_local() - timedelta(days=7)
         state = load_state()
         new_by_course: dict[int, list[Path]] = {}
         for rec in state.get("files", {}).values():
             try:
-                synced = rec.get("synced_at") or ""
-                if synced >= week_start.isoformat(timespec="seconds"):
+                # 解析成 datetime 再比：不同机器 / 不同时区配置下写下的
+                # synced_at 偏移可能不同，字符串比较会错判。
+                synced = datetime.fromisoformat(rec.get("synced_at") or "")
+                if synced.tzinfo is None:
+                    synced = synced.replace(tzinfo=UTC)
+                if synced >= week_start:
                     new_by_course.setdefault(int(rec.get("course_id", 0)), []).append(Path(rec["path"]))
             except ValueError:
                 continue

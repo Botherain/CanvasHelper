@@ -12,9 +12,11 @@ from zoneinfo import ZoneInfo
 
 from .canvas_api import CanvasAPI, Course
 from .deskbox import TodoDraft, _strip_html
-from .paths import ICS_PATH, get_logger, load_state, now_hk, save_state
+from .paths import ICS_PATH, get_logger, load_state, now_local, save_state
 
 log = get_logger()
+#: 兼容别名：历史常量（香港时区）。新代码请用 paths.now_local / paths.to_local
+#: ——它们跟随配置项 ``timezone``，换学校时才不会把截止时间算错几个小时。
 HK = ZoneInfo("Asia/Hong_Kong")
 
 
@@ -88,7 +90,7 @@ def mark_notices_read(notices: list[Notice]) -> list[Notice]:
     seen = set(state.get("notices", {}).get("seen", []))
     unread = [n for n in notices if n.key not in seen]
     state.setdefault("notices", {})["seen"] = sorted({n.key for n in notices})
-    state["notices"]["at"] = now_hk().isoformat(timespec="seconds")
+    state["notices"]["at"] = now_local().isoformat(timespec="seconds")
     state.pop("notices_cache", None)
     save_state(state)
     return unread
@@ -156,7 +158,7 @@ def update_grade_file(course_dir: Path, course: Course, data: dict) -> Path | No
     if not course_dir.is_dir():
         return None
     path = course_dir / "GradeNeed.txt"
-    block_lines = [f"--- Canvas 成绩（自动更新 {now_hk():%Y-%m-%d %H:%M}）---"]
+    block_lines = [f"--- Canvas 成绩（自动更新 {now_local():%Y-%m-%d %H:%M}）---"]
     if data.get("current") is not None:
         block_lines.append(f"当前总评分: {data['current'] * 100:.1f}%" if data["current"] <= 1
                            else f"当前总评分: {data['current']:.1f}%")
@@ -236,7 +238,7 @@ def weekly_report(
     drafts: list[TodoDraft],
     grades: dict | None = None,
 ) -> Path:
-    now = now_hk()
+    now = now_local()
     iso = now.isocalendar()
     path = course_dir / f"本周摘要-{now:%Y}-W{iso.week:02d}.md"
     lines = [

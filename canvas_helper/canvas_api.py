@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from urllib.parse import quote, unquote
 
 from .auth import AuthRequired, CanvasSession
+from .coursecode import course_code
 from .paths import cfg_discussions, get_logger
 
 log = get_logger()
@@ -44,12 +45,12 @@ class Course:
 
     @property
     def short(self) -> str:
-        """课程代码，例如 CS0001（剥离 202609 之类的学期前缀）。"""
-        for src in (self.code, self.name):
-            m = re.search(r"CS\s*(\d{4,5})", src or "", re.IGNORECASE)
-            if m:
-                return "CS" + m.group(1)
-        return (self.code or self.name or str(self.id))[:20].strip()
+        """课程代码（跨院校通用），例如 CS5187 / MATH101。
+
+        提取规则见 :mod:`canvas_helper.coursecode`：课程代码字段优先，
+        剥掉学期数字前缀；课程名次之；都不行才回落到原始字符串。
+        """
+        return course_code(self.code, self.name, fallback=str(self.id))
 
 
 @dataclass

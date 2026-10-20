@@ -1,6 +1,8 @@
 {
   "canvas_home": "",
   "classes_root": "",
+  "timezone": "",
+  "course_code_pattern": "",
   "course_map": {},
   "selected_courses": [],
   "categories": {

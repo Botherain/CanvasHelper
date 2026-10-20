@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .classify import CategoryDirs, lecture_dir, unique_path
-from .paths import get_logger, load_state, now_hk, save_state
+from .paths import get_logger, load_state, now_local, save_state
 
 log = get_logger()
 
@@ -122,7 +122,7 @@ def apply_plans(plans: list[TidyPlan], state: dict,
             if progress:
                 progress(f"{m.src.name} → {m.dest.relative_to(plan.course)}")
     if moved:
-        state["tidied_at"] = now_hk().isoformat(timespec="seconds")
+        state["tidied_at"] = now_local().isoformat(timespec="seconds")
     return {"moved": moved, "skipped": skipped, "errors": errors}
 
 
