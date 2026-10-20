@@ -62,6 +62,10 @@ class App(tk.Tk):
     def _startup(self) -> None:
         state = load_state()
         self._set_status(f"上次同步：{state.get('last_sync') or '（从未）'}")
+        # 首次运行：还没配过站点地址 -> 先让用户选学校，选完再进登录
+        if not canvas_home():
+            self.after(400, self._first_run_pick)
+            return
         auth = state.get("auth_needed") or {}
         if auth:
             # 后台同步时登录过期了，必须让人一眼看到，而不是埋在 sync.log 里
@@ -180,6 +184,7 @@ class App(tk.Tk):
         lbl_login.bind("<Button-1>", lambda _e: self.do_load_courses())
         ttk.Button(head, text="登录 / 刷新课程", command=self.do_load_courses).pack(side="right")
         ttk.Button(head, text="打开 Canvas", command=self.open_canvas).pack(side="right", padx=6)
+        ttk.Button(head, text="选择院校", command=self.do_pick_school).pack(side="right", padx=6)
 
         # 标签页
         self.nb = ttk.Notebook(self)
@@ -339,6 +344,8 @@ class App(tk.Tk):
 
         row("课程根目录", self.var_root, 0, "dir")
         row("Canvas 站点地址", self.var_home, 1)
+        ttk.Button(tab, text="选择院校…", command=self.do_pick_school).grid(
+            row=1, column=2, padx=6)
         row("时区（留空=跟随本机）", self.var_tz, 2)
         row("课程代码正则（留空=自动）", self.var_ccode, 3)
         row("DeskBox todo.json", self.var_todo, 4, "file")
@@ -449,6 +456,32 @@ class App(tk.Tk):
             os.startfile(home + "/")
         else:
             messagebox.showinfo(APP_NAME, "请先在设置页填写「Canvas 站点地址」。")
+
+    # ---------- 院校选择 ----------
+
+    def _first_run_pick(self) -> None:
+        """首次运行：没配过站点地址 -> 先选学校。"""
+        url = self.do_pick_school(ask_login=True)
+        if not url:
+            self.log("尚未选择院校。可点右上角「选择院校」随时设置。")
+            return
+
+    def do_pick_school(self, ask_login: bool = False) -> str:
+        """弹出院校选择窗口；选中后写入配置并（可选）直接进入登录。"""
+        from .schoolpicker import pick_school
+
+        url = pick_school(self, current=canvas_home())
+        if not url:
+            return ""
+        self.cfg["canvas_home"] = url
+        save_config(self.cfg)
+        self.var_home.set(url)
+        self.log(f"已选择 Canvas 站点：{url}")
+        self._set_status(f"已选择：{url}")
+        if ask_login:
+            # 选完学校直接进入该校的登录流程
+            self.do_load_courses()
+        return url
 
     def open_project(self) -> None:
         from .paths import DATA_DIR

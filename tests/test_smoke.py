@@ -86,3 +86,7 @@ def test_12_讨论区链接与快照() -> None:
 
 def test_13_跨院校通用化() -> None:
     _run("[13] 跨院校通用化（课程代码 / 目录匹配 / 时区）", smoke.s13_universal)
+
+
+def test_14_院校清单与地址归一化() -> None:
+    _run("[14] 院校清单与地址归一化", smoke.s14_schools)

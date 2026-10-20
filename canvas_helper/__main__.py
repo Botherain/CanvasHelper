@@ -76,6 +76,23 @@ def main(argv: list[str] | None = None) -> int:
                 log.info("用户: %s", s.profile.get("name"))
         return 0 if ok else 1
 
+    if cmd == "schools":
+        from .schools import SCHOOLS
+
+        kw = ""
+        for a in argv[1:]:
+            if not a.startswith("-"):
+                kw = a
+        if kw:
+            rows = [r for r in SCHOOLS if kw.lower() in r[0].lower() or kw.lower() in r[1].lower()]
+        else:
+            rows = list(SCHOOLS)
+        for name, url, region in rows:
+            print(f"{name}\t{url}\t{region}")
+        print(f"\n共 {len(rows)} 所（用 schools <关键词> 过滤；不在清单里请在设置页手填地址）",
+              file=sys.stderr)
+        return 0
+
     if cmd == "courses":
         from .auth import CanvasSession
         from .canvas_api import CanvasAPI
@@ -141,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         print("  python -m canvas_helper tidy --apply")
         return 0
 
-    print("用法: python -m canvas_helper [gui|sync|report|flush|clean|tidy|login|courses] "
+    print("用法: python -m canvas_helper [gui|sync|report|flush|clean|tidy|login|courses|schools] "
           "[--headless] [--version]")
     print("  gui      启动图形界面（默认）")
     print("  sync     立即同步课程文件与待办")
@@ -151,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  tidy     整理讲义：先预览移动方案，--apply 才真正执行")
     print("  login    交互式登录并保存会话")
     print("  courses  列出已识别课程")
+    print("  schools  列出已核实的 Canvas 院校清单（可带关键词过滤）")
     return 2
 
 

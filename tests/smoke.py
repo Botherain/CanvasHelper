@@ -1076,6 +1076,62 @@ def s13_universal() -> None:
           str(to_local(utc_due, ZoneInfo("America/New_York"))))
 
 
+def s14_schools() -> None:
+    """[14] 院校清单与地址归一化。"""
+    from canvas_helper.schoolpicker import normalize_home
+    from canvas_helper.schools import SCHOOLS, regions, search
+
+    print("\n[14] 院校清单（选学校 -> 进该校的 Canvas）")
+    check("清单非空", len(SCHOOLS) > 0, str(len(SCHOOLS)))
+    check("清单足够大", len(SCHOOLS) >= 50, str(len(SCHOOLS)))
+    check("地区已归类", len(regions()) >= 3, str(regions()))
+
+    # 每条都必须形如 https://主机（不含路径 / 结尾斜杠）
+    bad = [f"{n} {u}" for n, u, _r in SCHOOLS
+           if not u.startswith("https://") or "/" in u[len("https://"):]
+           or u.endswith("/") or " " in u]
+    check("地址格式统一（https + 只有主机 + 无结尾斜杠）", not bad, str(bad[:3]))
+
+    # URL 不重复
+    urls = [u.lower() for _n, u, _r in SCHOOLS]
+    check("地址无重复", len(urls) == len(set(urls)),
+          f"{len(urls)} 条 / {len(set(urls))} 唯一")
+
+    # 名称不重复（同名不同址的应已合并）
+    names = [n for n, _u, _r in SCHOOLS]
+    check("院校名无重复", len(names) == len(set(names)),
+          f"{len(names)} 条 / {len(set(names))} 唯一")
+
+    # 搜索：按名称 / 按域名 / 查不到
+    check("按名称搜索命中",
+          any("香港城市大学" in n for n, _u, _r in search("香港城市大学")),
+          str(search("香港城市大学")[:1]))
+    check("按域名搜索命中",
+          any("canvas.umich.edu" in u for _n, u, _r in search("umich")),
+          str(search("umich")[:1]))
+    check("搜不到时返回空", search("zzz-不存在的学校-xyzzy") == [],
+          str(search("zzz-不存在的学校-xyzzy")))
+    check("空关键词返回全部", len(search("")) == len(SCHOOLS), str(len(search(""))))
+
+    # 地址归一化：用户手填的常见写法都要收拾干净
+    cases = [
+        ("canvas.example.edu", "https://canvas.example.edu"),
+        ("https://canvas.example.edu/", "https://canvas.example.edu"),
+        ("  canvas.example.edu  ", "https://canvas.example.edu"),
+        ("https://canvas.example.edu/login", "https://canvas.example.edu"),
+        ("https://canvas.example.edu/users/auth", "https://canvas.example.edu"),
+        ("canvas.example.edu?x=1", "https://canvas.example.edu"),
+        ('"https://canvas.example.edu/"', "https://canvas.example.edu"),
+        ("", ""),
+    ]
+    for raw, want in cases:
+        got = normalize_home(raw)
+        check(f"地址归一化 {raw!r}", got == want, f"got={got!r}")
+    check("保留 http 协议",
+          normalize_home("http://canvas.example.edu") == "http://canvas.example.edu",
+          normalize_home("http://canvas.example.edu"))
+
+
 # --------------------------------------------------------------------------- #
 # 脚本入口
 # --------------------------------------------------------------------------- #
@@ -1102,6 +1158,7 @@ def main() -> int:
     s11_tidy()
     s12_discussions()
     s13_universal()
+    s14_schools()
 
     if fixture_root is not None:
         shutil.rmtree(fixture_root, ignore_errors=True)

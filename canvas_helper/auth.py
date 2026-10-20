@@ -147,7 +147,8 @@ class CanvasSession:
         home = canvas_home()
         if not home:
             raise RuntimeError(
-                "未配置 Canvas 站点地址：请在设置页「Canvas 站点地址」填写（config.json 的 canvas_home）")
+                "未选择 Canvas 站点：点界面右上角「选择院校」挑一所学校"
+                "（不在清单里可直接手填地址），或手动填写 config.json 的 canvas_home")
         return home + "/" + path.lstrip("/")
 
     def api_get(self, path: str, params: dict | None = None, timeout: int | None = None):
@@ -194,9 +195,10 @@ class CanvasSession:
     def ensure_login(self, on_status: StatusCb = _noop, timeout_s: int = 1200) -> bool:
         """确保已登录。必要时打开可见浏览器窗口等待用户完成 SSO/2FA。"""
         if not canvas_home():
-            on_status("未配置 Canvas 站点地址")
+            on_status("未选择 Canvas 站点")
             raise RuntimeError(
-                "未配置 Canvas 站点地址：请在设置页「Canvas 站点地址」填写（config.json 的 canvas_home）")
+                "未选择 Canvas 站点：点界面右上角「选择院校」挑一所学校"
+                "（不在清单里可直接手填地址），或手动填写 config.json 的 canvas_home")
         on_status("检查登录状态…")
         self.start(headless=True)
         if self.is_logged_in():
@@ -210,9 +212,14 @@ class CanvasSession:
             raise RuntimeError("浏览器会话未能启动")
         page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
         try:
-            page.goto(canvas_home() + "/", wait_until="domcontentloaded", timeout=60_000)
+            # 直接进 /login：各校的 SSO 都会从这里开始，比打开首页少一跳
+            page.goto(canvas_home() + "/login", wait_until="domcontentloaded", timeout=60_000)
         except Exception as exc:
-            log.warning("打开 Canvas 失败: %s", exc)
+            log.warning("打开 Canvas 登录页失败: %s", exc)
+            try:
+                page.goto(canvas_home() + "/", wait_until="domcontentloaded", timeout=60_000)
+            except Exception as exc2:
+                log.warning("打开 Canvas 首页也失败: %s", exc2)
 
         deadline = time.time() + timeout_s
         while time.time() < deadline:
