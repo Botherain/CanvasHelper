@@ -90,3 +90,7 @@ def test_13_跨院校通用化() -> None:
 
 def test_14_院校清单与地址归一化() -> None:
     _run("[14] 院校清单与地址归一化", smoke.s14_schools)
+
+
+def test_15_院校清单在线更新与缓存() -> None:
+    _run("[15] 院校清单在线更新与缓存", smoke.s15_schoollist)

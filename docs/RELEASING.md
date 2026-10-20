@@ -8,8 +8,8 @@
 ```powershell
 python -m ruff check canvas_helper tests scripts  # 0 错误
 python -m mypy                             # Success: no issues found
-python tests\smoke.py                      # 227 通过, 0 失败
-python -m pytest                           # 36 passed
+python tests\smoke.py                      # 249 通过, 0 失败
+python -m pytest                           # 37 passed
 ```
 
 改了 `pyproject.toml` 的 `version` 就必须同步改

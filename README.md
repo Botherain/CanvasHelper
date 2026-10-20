@@ -124,11 +124,26 @@ canvas-helper sync --headless    # 后台同步（计划任务用的就是它）
 ```powershell
 python -m canvas_helper schools            # 列出全部
 python -m canvas_helper schools 香港        # 按关键词过滤
+python -m canvas_helper schools --update    # 先从官方目录在线更新再列出
 ```
 
 清单里的每条地址都经过程序核实（请求 `<地址>/api/v1/users/self/profile`，
 返回 401 + JSON 才算 Canvas 实例），名称取自站点自身；但**清单只是起点**——
 你的学校不在里面也完全不影响使用。
+
+### 清单会自己更新
+
+内置清单之外，还会从 **Canvas 官方院校目录**（Instructure 公开接口）拉取最新
+条目，合并去重后缓存在 `%LOCALAPPDATA%\CanvasHelper\schools_cache.json`：
+
+- **启动时后台静默拉取**（缓存超过 30 天才拉），不阻塞界面
+- **随时手动更新**：选择院校窗口里的「更新清单」按钮，或
+  `python -m canvas_helper schools --update`
+- **离线可用**：官方源不可达时继续用本地缓存，再不行就只用内置清单
+- 官方目录里混着测试 / 演示租户（`*-dev`、`*-qa`、纯编号租户等），拉取时自动剔除
+
+> 官方目录只覆盖 Instructure 官方托管的租户（`*.instructure.com` 等），
+> 覆盖面有限；**各校自建 Canvas**（如 `canvas.xxx.edu`）仍以内置清单与手填地址为准。
 
 ### 适配其他 Canvas 站点
 
@@ -445,6 +460,7 @@ CanvasHelper\
 │  ├─ canvas_api.py  /api/v1 分页封装（课程/模块/页面正文/文件/作业/公告/讨论/成绩）
 │  ├─ coursecode.py  课程代码提取与归一化（跨院校通用）
 │  ├─ schools.py     已核实的 Canvas 院校清单（名称 / 地址 / 地区）
+│  ├─ schoollist.py  院校清单的在线更新与本地缓存（官方目录 + 内置清单合并）
 │  ├─ schoolpicker.py「选择你的学校」窗口（搜索清单 + 手填地址）
 │  ├─ classify.py    分类与子目录推断
 │  ├─ filesync.py    下载计划（dry-run）与执行
@@ -459,7 +475,7 @@ CanvasHelper\
 │  ├─ __init__.py        让用例以 tests.xxx 形式被发现（少了它 mypy 的 tests.* 规则不生效）
 │  ├─ smoke.py           离线自检的实现（分类 / 归档 / 待办合并 / 完成去重 / 缓存清理 / 登录过期）
 │  ├─ conftest.py        pytest 夹具（副作用隔离、课程目录、待办草稿上下文）
-│  ├─ test_smoke.py      把自检按小节交给 pytest 执行（15 个用例）
+│  ├─ test_smoke.py      把自检按小节交给 pytest 执行（16 个用例）
 │  └─ test_canvas_api.py 文件发现退化路径的离线回归（7 个用例，不联网）
 ├─ scripts\
 │  ├─ pyinstaller_entry.py  打包入口（__main__.py 是相对导入，不能当独立脚本分析）
@@ -504,15 +520,15 @@ CanvasHelper\
 
 ```powershell
 python tests\smoke.py      # 脚本入口：逐条 PASS/FAIL，任一失败退出码 1
-python -m pytest           # 同一套断言，按小节拆成 15 个用例
+python -m pytest           # 同一套断言，按小节拆成 16 个用例
 python -m ruff check canvas_helper tests scripts
 python -m mypy
 ```
 
 后三个都是 dev extra 里的工具：`python -m pip install -e ".[dev]"`。
 
-227 项断言全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器
-（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 227/227。
+249 项断言全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器
+（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 249/249。
 
 两种入口共用同一份实现（`tests\smoke.py` 里的 `s1_…`～`s9_…`），因此不会出现
 「脚本绿、pytest 红」的分叉。小节之间只通过夹具共享数据，**任意一节都能单独跑**：

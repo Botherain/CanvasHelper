@@ -77,20 +77,32 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
 
     if cmd == "schools":
-        from .schools import SCHOOLS
+        from .schoollist import all_regions, cache_age_days, search_schools, update
 
+        if "--update" in argv:
+            # --update：先在线拉一次官方目录，再列出
+            rep = update(force=True)
+            if rep.get("ok"):
+                log.info("院校清单已更新：在线 %d 条 + 内置 %d 条 = 共 %d 条",
+                         rep["fetched"], rep["total"] - rep["fetched"], rep["total"])
+            else:
+                log.warning("院校清单在线更新失败：%s（继续用本地清单）",
+                            rep.get("error") or "未知原因")
         kw = ""
         for a in argv[1:]:
             if not a.startswith("-"):
                 kw = a
-        if kw:
-            rows = [r for r in SCHOOLS if kw.lower() in r[0].lower() or kw.lower() in r[1].lower()]
-        else:
-            rows = list(SCHOOLS)
+        rows = search_schools(kw)
         for name, url, region in rows:
             print(f"{name}\t{url}\t{region}")
-        print(f"\n共 {len(rows)} 所（用 schools <关键词> 过滤；不在清单里请在设置页手填地址）",
-              file=sys.stderr)
+        age = cache_age_days()
+        tail = (f"清单上次在线更新是 {int(age)} 天前"
+                if age >= 0 else "尚未在线更新过（当前为内置清单）")
+        print(f"\n共 {len(rows)} 所 · {tail}"
+              f"（用 schools <关键词> 过滤；--update 拉取最新；"
+              f"不在清单里请在设置页手填地址）", file=sys.stderr)
+        if "--regions" in argv:
+            print("地区：" + "、".join(all_regions()), file=sys.stderr)
         return 0
 
     if cmd == "courses":
@@ -168,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  tidy     整理讲义：先预览移动方案，--apply 才真正执行")
     print("  login    交互式登录并保存会话")
     print("  courses  列出已识别课程")
-    print("  schools  列出已核实的 Canvas 院校清单（可带关键词过滤）")
+    print("  schools  列出 Canvas 院校清单（--update 在线更新；可带关键词过滤）")
     return 2
 
 

@@ -62,6 +62,8 @@ class App(tk.Tk):
     def _startup(self) -> None:
         state = load_state()
         self._set_status(f"上次同步：{state.get('last_sync') or '（从未）'}")
+        # 院校清单在线更新：后台静默拉取，不阻塞界面（缓存过期才拉）
+        self._refresh_school_list_async()
         # 首次运行：还没配过站点地址 -> 先让用户选学校，选完再进登录
         if not canvas_home():
             self.after(400, self._first_run_pick)
@@ -87,6 +89,25 @@ class App(tk.Tk):
         # 免得刚开窗口就弹出浏览器登录框（那种情况下顶部横幅已经在提示了）
         if not auth:
             self.do_load_notices()
+
+    def _refresh_school_list_async(self) -> None:
+        """后台静默更新院校清单（缓存过期才拉；失败不影响使用）。"""
+        from .schoollist import needs_refresh, update
+
+        if not needs_refresh():
+            return
+
+        def job():
+            return update()
+
+        def done(rep):
+            if rep.get("ok"):
+                self.log(f"院校清单已在线更新：共 {rep['total']} 所")
+            else:
+                self.log(f"院校清单在线更新未成功（{rep.get('error') or '未知'}），"
+                         "继续用本地清单")
+
+        self.bg(job, on_done=done)
 
     def _progress(self, msg: str) -> None:
         self.q.put(("progress", msg))

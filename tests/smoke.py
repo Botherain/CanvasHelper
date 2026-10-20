@@ -1132,6 +1132,94 @@ def s14_schools() -> None:
           normalize_home("http://canvas.example.edu"))
 
 
+def s15_schoollist() -> None:
+    """[15] 院校清单的在线更新与本地缓存。"""
+    from canvas_helper import schoollist
+    from canvas_helper.schools import SCHOOLS
+
+    print("\n[15] 院校清单在线更新与缓存")
+
+    # --- 合并规则：内置优先 + 在线补充，按地址去重 ---
+    online = [("某在线大学 Online U", "https://online-u.example.edu"),
+              ("某内置大学 Built-in U", "https://canvas.cityu.edu.hk")]
+    merged = schoollist.merge_builtin(online)
+    urls = [u.lower() for _n, u, _r in merged]
+    check("合并后无重复地址", len(urls) == len(set(urls)),
+          f"{len(urls)} 条 / {len(set(urls))} 唯一")
+    check("内置条目全部保留", all(u.lower() in urls for _n, u, _r in SCHOOLS),
+          str(len(SCHOOLS)))
+    check("在线新增条目被补进", any(u == "https://online-u.example.edu" for _n, u, _r in merged),
+          str(len(merged)))
+    # 同地址两边都有 -> 保留内置的名称
+    hit = [n for n, u, _r in merged if u == "https://canvas.cityu.edu.hk"]
+    check("同地址保留内置名称（在线只补它没有的）",
+          hit == [SCHOOLS[0][0]], str(hit))
+
+    # --- 缓存读写与损坏降级 ---
+    cache = schoollist.CACHE_PATH
+    backup = cache.read_bytes() if cache.is_file() else None
+    try:
+        entries = [("缓存大学 A", "https://a.example.edu"),
+                   ("缓存大学 B", "https://b.example.edu")]
+        check("写缓存成功", schoollist._write_cache(entries), "")
+        read_back, fetched = schoollist._read_cache()
+        check("缓存能读回来", read_back == entries, str(read_back))
+        check("缓存带时间戳", fetched > 0, str(fetched))
+        check("缓存年龄可计算", schoollist.cache_age_days() >= 0,
+              str(schoollist.cache_age_days()))
+        check("刚写完不需要刷新", not schoollist.needs_refresh(), "")
+        # 损坏的缓存 -> 回落到内置清单，不崩
+        cache.write_text("{ 这不是合法 JSON", encoding="utf-8")
+        read_back2, fetched2 = schoollist._read_cache()
+        check("坏缓存不抛异常且读作空", read_back2 == [] and fetched2 == 0.0,
+              str(read_back2))
+        check("坏缓存时只剩内置清单",
+              len(schoollist.current_schools()) == len(SCHOOLS),
+              str(len(schoollist.current_schools())))
+    finally:
+        if backup is not None:
+            cache.write_bytes(backup)
+        else:
+            cache.unlink(missing_ok=True)
+
+    # --- 源不可达时不崩，且降级到缓存 ---
+    old_url = schoollist.OFFICIAL_URL
+    try:
+        schoollist.OFFICIAL_URL = "https://invalid.invalid/nope"
+        rep = schoollist.update(timeout=3.0)
+        check("源不可达时返回失败而不是抛异常", rep.get("ok") is False, str(rep))
+        check("失败时仍能用缓存/内置清单", len(schoollist.current_schools()) >= len(SCHOOLS),
+              str(len(schoollist.current_schools())))
+    finally:
+        schoollist.OFFICIAL_URL = old_url
+
+    # --- 过滤测试/演示租户 ---
+    check("测试租户被过滤", schoollist._is_noise("09633076 instructure",
+                                                 "https://mobileqa.instructure.com"))
+    check("dev 租户被过滤", schoollist._is_noise("ACU-DEV", "https://acu-dev.instructure.com"))
+    check("正常租户不被过滤", not schoollist._is_noise("Harvard University",
+                                                      "https://canvas.harvard.edu"))
+    check("官方地址是 https", schoollist.OFFICIAL_URL.startswith("https://"),
+          schoollist.OFFICIAL_URL)
+
+    # --- 地区推断 ---
+    check("地区推断 .edu.hk", schoollist._guess_region("https://x.edu.hk") == "中国香港/澳门",
+          schoollist._guess_region("https://x.edu.hk"))
+    check("地区推断 instructure 归美国",
+          schoollist._guess_region("https://x.instructure.com") == "美国",
+          schoollist._guess_region("https://x.instructure.com"))
+
+    # --- 搜索走的是合并后的清单（内置条目应在结果里） ---
+    check("搜索能命中内置条目",
+          any("香港城市大学" in n for n, _u, _r in schoollist.search_schools("香港城市大学")),
+          "内置条目应在搜索结果里")
+    check("按域名搜索命中",
+          any("cityu.edu.hk" in u for _n, u, _r in schoollist.search_schools("cityu")),
+          "应能按域名搜到")
+    check("搜不到时返回空", schoollist.search_schools("zzz-不存在-xyzzy") == [],
+          str(schoollist.search_schools("zzz-不存在-xyzzy")))
+
+
 # --------------------------------------------------------------------------- #
 # 脚本入口
 # --------------------------------------------------------------------------- #
@@ -1159,6 +1247,7 @@ def main() -> int:
     s12_discussions()
     s13_universal()
     s14_schools()
+    s15_schoollist()
 
     if fixture_root is not None:
         shutil.rmtree(fixture_root, ignore_errors=True)

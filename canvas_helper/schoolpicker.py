@@ -5,6 +5,9 @@
 让用户自己猜域名是最大的上手门槛，所以这里给一份**已核实**的清单供搜索，
 同时也允许直接手填地址——清单只是起点，不在清单里的学校一样能用。
 
+清单本身可在线更新（见 :mod:`canvas_helper.schoollist`）：内置清单 + 官方目录
+拉取结果合并后缓存在本机，离线时用缓存，再不行就只用内置清单。
+
 程序本身不含任何与具体院校绑定的逻辑：选完只得到一个站点地址，
 后续登录、课程读取全部走 :mod:`canvas_helper.auth` 的通用流程。
 """
@@ -17,7 +20,7 @@ from tkinter import messagebox, ttk
 
 from . import APP_NAME
 from .paths import get_logger
-from .schools import SCHOOLS, regions, search
+from .schoollist import all_regions, cache_age_days, search_schools, update
 
 log = get_logger()
 
@@ -54,12 +57,12 @@ def normalize_home(text: str) -> str:
 
 
 class SchoolPicker(tk.Toplevel):
-    """院校选择窗口：搜索清单 / 手填地址 / 选地区筛选。
+    """院校选择窗口：搜索清单 / 手填地址 / 选地区筛选 / 在线更新。
 
     用法::
 
         dlg = SchoolPicker(parent, current="https://canvas.example.edu")
-        dlg.wait_window()
+        parent.wait_window(dlg)
         url = dlg.selected_url      # 选中或手填的规范地址（没选则空串）
     """
 
@@ -67,8 +70,8 @@ class SchoolPicker(tk.Toplevel):
         super().__init__(parent)
         self.title(f"选择你的学校 · {APP_NAME}")
         self.transient(parent)
-        self.geometry("760x560")
-        self.minsize(640, 460)
+        self.geometry("760x580")
+        self.minsize(640, 480)
         self.selected_url = ""
         self._current = current
 
@@ -83,12 +86,12 @@ class SchoolPicker(tk.Toplevel):
             style.configure("Header.TLabel", font=FONT_BOLD)
         ttk.Label(body, text="先选学校，再进该校的 Canvas 登录页",
                   style="Header.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            body,
-            text="清单里的地址均已核实确实是 Canvas；找不到你的学校就直接手填地址。",
-            foreground="#666").grid(row=1, column=0, sticky="w", pady=(2, 8))
+        self.hint = tk.StringVar(value="清单里的地址均已核实确实是 Canvas；"
+                                         "找不到你的学校就直接手填地址。")
+        ttk.Label(body, textvariable=self.hint, foreground="#666").grid(
+            row=1, column=0, sticky="w", pady=(2, 8))
 
-        # --- 搜索 + 地区 ---
+        # --- 搜索 + 地区 + 更新 ---
         top = ttk.Frame(body)
         top.grid(row=2, column=0, sticky="ew", pady=(0, 6))
         top.columnconfigure(1, weight=1)
@@ -101,9 +104,11 @@ class SchoolPicker(tk.Toplevel):
         ttk.Label(top, text="地区").grid(row=0, column=2, sticky="w", padx=(12, 6))
         self.var_region = tk.StringVar(value="全部")
         reg_box = ttk.Combobox(top, textvariable=self.var_region, state="readonly",
-                               width=16, values=["全部", *regions()])
+                               width=16, values=["全部", *all_regions()])
         reg_box.grid(row=0, column=3, sticky="w")
         reg_box.bind("<<ComboboxSelected>>", lambda _e: self._refresh())
+        ttk.Button(top, text="更新清单", command=self._on_update).grid(
+            row=0, column=4, sticky="e", padx=(12, 0))
 
         # --- 列表 ---
         wrap = ttk.Frame(body)
@@ -145,17 +150,43 @@ class SchoolPicker(tk.Toplevel):
 
         self._refresh()
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self._show_cache_age()
 
     # ---------- 内部 ----------
+
+    def _show_cache_age(self) -> None:
+        """在提示行里说明清单的时效（在线更新过就显示缓存时间）。"""
+        age = cache_age_days()
+        if age < 0:
+            self.hint.set("清单里的地址均已核实确实是 Canvas；"
+                          "找不到你的学校就直接手填地址。")
+        elif age < 1:
+            self.hint.set("清单已在线更新（刚刚）；找不到你的学校就直接手填地址。")
+        else:
+            self.hint.set(f"清单上次在线更新是 {int(age)} 天前；"
+                          "找不到你的学校就直接手填地址。")
 
     def _refresh(self) -> None:
         """按搜索词与地区重填列表。"""
         self.tree.delete(*self.tree.get_children())
-        region = self.var_region.get()
-        for name, url, reg in search(self.var_q.get()):
-            if region != "全部" and reg != region:
-                continue
+        for name, url, _reg in search_schools(self.var_q.get(), self.var_region.get()):
             self.tree.insert("", "end", values=(name, url))
+
+    def _on_update(self) -> None:
+        """从官方目录在线拉取院校清单并写本地缓存。"""
+        self.hint.set("正在从 Canvas 官方目录更新院校清单…")
+        self.update_idletasks()
+        rep = update()
+        if rep.get("ok"):
+            self.hint.set(f"院校清单已更新：共 {rep['total']} 所"
+                          f"（在线 {rep['fetched']} + 内置 {rep['total'] - rep['fetched']}）。")
+            # 地区下拉的取值可能因新条目而变化
+            self.var_region.set("全部")
+            self._refresh()
+        else:
+            self.hint.set(f"更新失败（{rep.get('error') or '未知原因'}），"
+                          "继续用本地清单。")
+        messagebox.showinfo(APP_NAME, self.hint.get(), parent=self)
 
     def _on_select(self, _event=None) -> None:
         """清单里选中某一项 -> 把手填框同步成它的地址。"""
@@ -193,8 +224,3 @@ def pick_school(parent: tk.Tk, current: str = "") -> str:
     dlg = SchoolPicker(parent, current=current)
     parent.wait_window(dlg)
     return dlg.selected_url
-
-
-def all_schools() -> list[tuple[str, str, str]]:
-    """全部院校（供命令行列出）。"""
-    return list(SCHOOLS)
