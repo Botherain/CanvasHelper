@@ -5,7 +5,11 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [1.2.0] - 2026-10-21
+
+本版把 Python 地板从 3.11 降到 3.9（让更多学生装得上），补上旧 pip 的安装垫片、
+Edge 缺失时的浏览器兜底，并把「打包 + 发布」整条链路自动化。行为向后兼容：没有
+配置项变化，`HK` / `now_hk()` 等旧名保留。
 
 ### 兼容 · Python 地板降到 3.9 + 分发链路补齐
 
@@ -408,6 +412,7 @@
   脚本入口与 pytest 双跑，Windows runner。
 - 计划任务在真实环境跑通验证，`schedule.enabled` 默认仍为 `False`（不替用户做决定）。
 
-[未发布]: https://github.com/Botherain/CanvasHelper/compare/v1.1.0...HEAD
+[未发布]: https://github.com/Botherain/CanvasHelper/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Botherain/CanvasHelper/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Botherain/CanvasHelper/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Botherain/CanvasHelper/releases/tag/v1.0.0

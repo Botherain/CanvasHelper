@@ -23,8 +23,8 @@ body:
     id: version
     attributes:
       label: 版本
-      description: 在「设置」页或标题栏能看到，例如 `v1.1.0`
-      placeholder: v1.1.0
+      description: 在「设置」页或标题栏能看到，例如 `v1.2.0`
+      placeholder: v1.2.0
     validations:
       required: true
 
