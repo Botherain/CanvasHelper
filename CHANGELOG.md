@@ -7,6 +7,16 @@
 
 ## [未发布]
 
+### 兼容 · Python 地板降到 3.9 + 分发链路补齐
+
+- **最小 Python 从 3.11 降到 3.9**。代码侧真正阻塞的只有两处：`datetime.UTC`（4 个文件 import 的 3.11 常量，改成 `timezone.utc` 别名）与 `datetime.fromisoformat()` 不认结尾的 `Z`（Canvas 恰好爱这么写，解析失败会让整条截止时间静默消失，现在先归一化成 `+00:00`）。`vermin` 实测最低版本为 3.9，CI 矩阵加了 3.9 / 3.10 两个真实解释器；`ruff` 目标改 `py39`，mypy 只能按 `3.10` 检查（1.19 起不再支持 3.9 目标），3.9 的真实兼容性由 CI 实跑保证。
+- **依赖侧唯一的坑是 playwright**：它从 1.61 起就要求 Python >= 3.10，1.60 是最后一个支持 3.9 的版本。依赖下限因此从 `>=1.63` 改成 `>=1.49`，交给 pip 按解释器挑——3.9 的机器自动落到 1.60，3.10+ 照旧拿最新。本项目用到的 API（持久化上下文、`channel`、`context.request`、cookie 读写）在 1.49 上就有，不存在版本差异。
+- **`setup.py` 垫片**：3.9 自带 pip 20.2、3.10 自带 21.2，都低于 21.3，`pip install -e .` 走的是只认 `setup.py` 的老路。垫片在 setuptools >= 61 时只做一次空 `setup()`（一切以 `pyproject.toml` 为准），旧环境才用里面的元数据副本，版本号仍从 `__init__.py` 读，不产生第二份要同步的真相。
+- **浏览器兜底不再走死路**：原先「Edge 起不来 -> 回退内置 Chromium -> 又起不来」抛的是 Playwright 的原始报错，用户对着 `Executable doesn't exist` 无法自救。现在第二次失败抛 `BrowserUnavailable`，写清两条路（装回 Edge / 下载 Chromium），并配了 `install_chromium()`：设置页新增「安装 Chromium」按钮，命令行新增 `python -m canvas_helper install-browser`。走的 Playwright 自带 driver，源码运行与打包 exe 都能用。
+- **tzdata 缺失不再启动即崩**：`HK = ZoneInfo("Asia/Hong_Kong")` 是模块级构造，Windows 没有 IANA 库时会在 import 阶段直接打死程序。改成 `zone_or_none()`（paths / deskbox / extras 三处），取不到时该别名退化为 `None`、主流程跟随系统时区，`tz()` 也复用同一个兜底。
+- **打包与发布**：`CanvasHelper.spec` 从 `.gitignore` 里放出来入库，并把 `collect_data_files('tzdata')` / `collect_submodules('tzdata')` 补进去（原先只打 playwright，漏时区库）。新增 `.github/workflows/release.yml`：推 `v*` 标签自动构建 wheel / sdist / 单目录 exe 并发 GitHub Release，发布前校验 tag 与 `__version__` 一致；手动触发则只构建、产物存 artifact。
+- 离线自检 250 -> 256：加一条 `Z` 结尾截止时间的解析断言，以及 setup.py / spec 内容 / release workflow / 「没有用 3.11 才有的 `datetime.UTC`」四条静态断言。
+
 ### 修复 · 进度条常驻可见与设置页滚动
 
 - **进度条在默认窗口下根本不显示**：日志 + 状态栏原先排在标签页之后 `pack`，而 `ttk.Notebook` 的请求高度被设置页那 24 行控件撑到 760px，packer 把剩余空间全给了它、底部只剩 3px —— 进度条与状态文字被整体裁掉（实测默认窗口 1200x820 即不可见，要把窗口拉到约 960px 高才显现，且 `minsize(980, 640)` 只能拦住「更小」、拦不住「不够大」）。改成状态栏先 `pack` 且 `side="bottom"`，标签页只取剩余空间；日志区从 6 行降到 4 行，把省下来的高度留给标签页。实测 820 / 700 / 640 / 560 / 480 / 400 / 300 全高度下进度条、状态文字、日志均可见。

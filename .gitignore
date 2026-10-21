@@ -16,8 +16,11 @@ dist/
 *.egg-info/
 .eggs/
 
-# PyInstaller 生成的构建文件（由 scripts/pyinstaller_entry.py + 命令行参数重建）
+# PyInstaller 生成的构建文件（由命令行参数重建）
 *.spec
+# 但主 spec 必须入库：里面写的「要带上 playwright driver / tzdata」就是分发
+# 正确性本身，重建时不能靠脑记
+!CanvasHelper.spec
 # 快捷方式带本机绝对路径，只入库生成脚本 scripts/make_shortcut.ps1
 *.lnk
 

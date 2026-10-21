@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Botherain/CanvasHelper/actions/workflows/ci.yml/badge.svg)](https://github.com/Botherain/CanvasHelper/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](pyproject.toml)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](pyproject.toml)
 
 <p align="center">
   <img src="docs/icons/canvashelper.png" alt="应用图标" width="96">
@@ -102,7 +102,7 @@ Canvas 在全球有数千所院校在用，站点地址五花八门（`canvas.<�
 
 ### 前置条件
 
-Windows 10 / 11、Python 3.11+。浏览器用系统自带的 Edge——Playwright 直接驱动它，**不用另下浏览器**。
+Windows 10 / 11、Python 3.9 以上。浏览器优先用系统自带的 Edge——Playwright 直接驱动它，**不用另下浏览器**；万一这台机器没有 Edge，设置页有「安装 Chromium」按钮（命令行等价：`python -m canvas_helper install-browser`），下载一次约 150 MB。
 
 ### 第一步：取得项目文件
 
@@ -276,6 +276,7 @@ python -m canvas_helper clean              # 清理默认项（状态/日历/日
 python -m canvas_helper clean --login      # 连登录态一起清（之后需重新登录）
 python -m canvas_helper tidy               # 预览讲义整理方案（不写盘）
 python -m canvas_helper tidy --apply       # 确认后执行：散件移进章节目录
+python -m canvas_helper install-browser    # 下载 Chromium（系统没有 Edge 时才需要）
 python -m canvas_helper --version          # 版本号
 ```
 
@@ -358,9 +359,12 @@ CanvasHelper\
 │  ├─ icons\canvashelper.png    图标预览（README 顶部展示）
 │  └─ RELEASING.md              发布流程 / 打包双轨 / 代码签名方案
 ├─ .github\
-│  ├─ workflows\ci.yml      lint（ruff + mypy）+ 离线自检 x Python 3.11~3.14
+│  ├─ workflows\ci.yml      lint（ruff + mypy）+ 离线自检 x Python 3.9~3.14
+│  ├─ workflows\release.yml 推 tag 自动打包（wheel / sdist / exe）+ 发 Release
 │  └─ ISSUE_TEMPLATE\       Bug / 功能建议的 issue forms
 ├─ pyproject.toml         元数据 + ruff + mypy + pytest 配置（唯一版本号来源）
+├─ setup.py               旧 pip（< 21.3）的 editable 安装垫片，新 pip 下不参与
+├─ CanvasHelper.spec      PyInstaller 打包定义（playwright driver + tzdata 在这里声明）
 ├─ CHANGELOG.md           变更记录
 ├─ config.example.json    配置模板（可写数据不在这里，见「数据目录」）
 ├─ LICENSE
@@ -378,7 +382,7 @@ python -m mypy
 
 后三个都是 dev extra 里的工具：`python -m pip install -e ".[dev]"`。
 
-250 项断言全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 250/250。
+256 项断言全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 256/256。
 
 两种入口共用同一份实现（`tests\smoke.py` 里的 `s1_…`～`s15_…`），因此不会出现「脚本绿、pytest 红」的分叉。小节之间只通过夹具共享数据，**任意一节都能单独跑**：
 
@@ -386,7 +390,7 @@ python -m mypy
 python -m pytest -k test_7      # 只跑「附加功能」，它依赖的 [5] 草稿由夹具提供
 ```
 
-失败时 pytest 直接列出该小节**全部**失败项（不是在第一条就中止）。每次推送到 `main` 及每个 PR 都会由 [GitHub Actions](https://github.com/Botherain/CanvasHelper/actions/workflows/ci.yml) 在 Windows x Python 3.11 / 3.12 / 3.13 / 3.14 上各跑一遍；另有一个 `lint` job 跑 ruff + mypy。
+失败时 pytest 直接列出该小节**全部**失败项（不是在第一条就中止）。每次推送到 `main` 及每个 PR 都会由 [GitHub Actions](https://github.com/Botherain/CanvasHelper/actions/workflows/ci.yml) 在 Windows x Python 3.9 / 3.10 / 3.11 / 3.12 / 3.13 / 3.14 上各跑一遍；另有一个 `lint` job 跑 ruff + mypy。推一个 `v*` 标签则由 [release.yml](.github/workflows/release.yml) 自动出 wheel / sdist / exe 并发 Release。
 
 **版本与发布**
 
@@ -456,6 +460,10 @@ A：不会静默失败。学校 SSO / 2FA 的登录态**大约 7 小时后过期
 3. **下次打开 GUI 一眼看到** —— 顶部「登录状态」变成 `⚠ 已过期（2026-10-05 08:30），点击重新登录`，点它或点「登录 / 刷新课程」；登录成功后标记自动清除。
 
 同步途中 cookie 失效同样会中止整轮（不会带着过期会话继续下载 / 写待办）并置同一标记。判定「能不能弹窗」看的是 **Windows 会话号**（0 = 服务，1+ = 交互），而**不是** `SESSIONNAME`——后者只存在于登录时的会话环境，计划任务的环境是从用户注册表重建的、实测为 `null`，拿它当判据会把每日同步这条主路径一起判死。每周摘要过期时**只记标记不弹窗**，因为每日同步在前已经弹过一次。
+
+**Q：电脑上没有 Edge / 提示「没有可用的浏览器」？**
+
+A：程序默认驱动系统自带的 Edge，不额外下载浏览器。Edge 被卸载、被组策略禁用，或系统是精简版时，会自动回退到 Playwright 自带的 Chromium——但那个 Chromium 要先下载一次：设置页点「安装 Chromium」，或运行 `python -m canvas_helper install-browser`（约 150 MB，装在 `%LOCALAPPDATA%\ms-playwright`，不影响已有文件与登录态）。两者都不可用时程序才会停下，报错里写明了这两条路。
 
 **Q：已经完成的作业又冒出来了？**
 

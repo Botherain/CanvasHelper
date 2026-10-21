@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -268,6 +269,14 @@ def s5_drafts(c: Course, res, cfg: dict) -> None:
           str(d0.due))
     check("截止时间与 Canvas 给的绝对时刻一致",
           d0.due == datetime.fromisoformat("2026-11-20T15:59:00+00:00"), str(d0.due))
+    # 3.11 之前 fromisoformat 不认结尾的 Z，Canvas 恰好爱用这种写法；解析不出来
+    # 就等于「这条作业没有截止时间」，且不会报错——只能靠断言盯着。
+    from canvas_helper.deskbox import _parse_due
+
+    check("Z 结尾的截止时间也能解析",
+          _parse_due("2026-11-20T15:59:00Z")
+          == datetime.fromisoformat("2026-11-20T15:59:00+00:00"),
+          str(_parse_due("2026-11-20T15:59:00Z")))
     check("文本带课程代码", d0.text.startswith("CS0001"), d0.text)
     check("作业标红", d0.color == "red", d0.color)
     check("项目标橙", res.drafts[1].color == "orange", res.drafts[1].color)
@@ -702,14 +711,32 @@ def s9_packaging() -> None:
                      if ln.strip().startswith("version =")), "")
     got_ver = ver_line.split('"')[1] if '"' in ver_line else ""
     check("版本号与 __version__ 一致", got_ver == _ver, f"{got_ver!r} vs {_ver!r}")
-    check("声明 requires-python >=3.11", 'requires-python = ">=3.11"' in pt)
+    check("声明 requires-python >=3.9", 'requires-python = ">=3.9"' in pt)
+    # mypy 从 1.19 起不再支持把 3.9 当目标，只能按 3.10 检查；ruff 仍按 3.9 判。
+    check("静态检查目标不高于声明地板",
+          'target-version = "py39"' in pt and 'python_version = "3.10"' in pt)
     check("依赖与原 requirements 同源",
-          '"playwright>=1.63"' in pt and '"tzdata>=2024.1"' in pt)
+          '"playwright>=1.49"' in pt and '"tzdata>=2024.1"' in pt)
     check("控制台入口指向 __main__", "canvas_helper.__main__:main" in pt)
     check("GUI 入口点存在", "canvas_helper.gui:main" in pt)
     check("只打包 canvas_helper", 'packages = ["canvas_helper"]' in pt)
     check("声明 MIT 且 LICENSE 存在",
           'license = "MIT"' in pt and (ROOT / "LICENSE").is_file())
+    check("setup.py 垫片存在（旧 pip 的 editable 安装只认它）",
+          (ROOT / "setup.py").is_file())
+    spec = ROOT / "CanvasHelper.spec"
+    spec_txt = spec.read_text(encoding="utf-8") if spec.is_file() else ""
+    check("打包 spec 入库并带上 playwright driver 与 tzdata",
+          "collect_all('playwright')" in spec_txt
+          and "collect_data_files('tzdata')" in spec_txt, str(spec))
+    check("推 tag 自动发布",
+          (ROOT / ".github" / "workflows" / "release.yml").is_file())
+    # 3.9 地板：datetime.UTC 是 3.11 才有的常量。mypy 按 3.10 检查抓不到它，
+    # 只有真机 3.9 会炸——所以本地静态扫一遍，别等 CI 才发现。
+    offenders = [p.name for p in sorted(ROOT.glob("canvas_helper/*.py"))
+                 if re.search(r"from datetime import[^\n]*\bUTC\b",
+                              p.read_text(encoding="utf-8"))]
+    check("没有用到 3.11 才有的 datetime.UTC", not offenders, str(offenders))
     # 静默回归：状态栏若排在标签页之后 pack，会被 notebook 的请求高度（设置页
     # 24 行撑出的 760px）挤到 3px——进度条与状态文字直接看不见，但不报任何错。
     gui_src = (ROOT / "canvas_helper" / "gui.py").read_text(encoding="utf-8")
@@ -992,7 +1019,7 @@ def s12_discussions() -> None:
 
 def s13_universal() -> None:
     """[13] 跨院校通用化：课程代码提取 + 目录匹配 + 时区。"""
-    from datetime import UTC, datetime
+    from datetime import datetime, timezone
     from zoneinfo import ZoneInfo
 
     print("\n[13] 跨院校通用化（课程代码 / 目录匹配 / 时区）")
@@ -1077,7 +1104,7 @@ def s13_universal() -> None:
           str(to_local(utc_due, ZoneInfo("Asia/Shanghai"))))
     # 同一绝对时刻在任何时区下换算结果一致（不该因时区而错判截止时间）
     check("换时区不改变绝对时刻",
-          to_local(utc_due, ZoneInfo("America/New_York")).astimezone(UTC) == utc_due,
+          to_local(utc_due, ZoneInfo("America/New_York")).astimezone(timezone.utc) == utc_due,
           str(to_local(utc_due, ZoneInfo("America/New_York"))))
 
 

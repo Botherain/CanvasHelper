@@ -6,18 +6,21 @@ import html
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from .canvas_api import CanvasAPI, Course
 from .deskbox import TodoDraft, _strip_html
-from .paths import ICS_PATH, get_logger, load_state, now_local, save_state
+from .paths import ICS_PATH, get_logger, load_state, now_local, save_state, zone_or_none
+
+# 3.9 兼容：datetime.UTC 这个常量是 3.11 才加的，旧解释器上取不到。
+UTC = timezone.utc
 
 log = get_logger()
 #: 兼容别名：历史常量（香港时区）。新代码请用 paths.now_local / paths.to_local
 #: ——它们跟随配置项 ``timezone``，换学校时才不会把截止时间算错几个小时。
-HK = ZoneInfo("Asia/Hong_Kong")
+#: 取不到时区库时为 None（Windows 的 IANA 库来自 tzdata），不影响主流程。
+HK = zone_or_none("Asia/Hong_Kong")
 
 
 # ---------------- 通知 / 公告 ----------------

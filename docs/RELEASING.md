@@ -8,7 +8,7 @@
 ```powershell
 python -m ruff check canvas_helper tests scripts  # 0 错误
 python -m mypy                             # Success: no issues found
-python tests\smoke.py                      # 250 通过, 0 失败
+python tests\smoke.py                      # 256 通过, 0 失败
 python -m pytest                           # 37 passed
 ```
 
@@ -16,7 +16,7 @@ python -m pytest                           # 37 passed
 `canvas_helper/__init__.py` 的 `__version__`——自检第 [9] 节会断言两者相等，
 不一致直接红。
 
-CI（`lint` + `smoke` × Python 3.11/3.12/3.13/3.14）全绿后才能发。
+CI（`lint` + `smoke` × Python 3.9/3.10/3.11/3.12/3.13/3.14）全绿后才能发。
 
 ## 2. 版本与变更
 
@@ -52,18 +52,31 @@ CI（`lint` + `smoke` × Python 3.11/3.12/3.13/3.14）全绿后才能发。
 
 ### 轨道 A · PyInstaller（给不想碰 Python 的人）
 
+**推 tag 就自动出包**——`.github/workflows/release.yml` 在 `v*` 标签推送时构建
+wheel / sdist / 单目录 exe，并把三者挂到对应的 GitHub Release 上，本地不用装
+任何打包工具：
+
 ```powershell
-python -m pip install pyinstaller
-pyinstaller --noconfirm --clean ^
-    --name CanvasHelper ^
-    --windowed ^
-    --icon "docs\icons\canvashelper.ico" ^
-    --collect-all playwright ^
-    --hidden-import canvas_helper ^
-    scripts\pyinstaller_entry.py
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
-- `--windowed` 不起控制台（tkinter 主程序）。
+workflow 会先校验 tag 与 `__version__` 一致（不一致直接失败，不会误发）。想单独
+验证打包链路而不发版，就在 Actions 页面手动触发 `Release`（只构建、产物存为
+artifact）。
+
+本地手工打包等价于：
+
+```powershell
+python -m pip install pyinstaller
+pyinstaller --noconfirm --clean CanvasHelper.spec
+```
+
+- **参数全在 `CanvasHelper.spec` 里（该文件已入库）**：`collect_all('playwright')`
+  带上 driver（node.exe + cli.js，Edge 缺失时「安装 Chromium」要靠它），
+  `collect_data_files('tzdata')` 带上 IANA 时区库。这两样漏任何一个，用户那边
+  不是起不来就是登录无退路——所以不靠命令行现敲，避免「本地能打、CI 打出来少东西」。
+- `console=False` 不起控制台（tkinter 主程序）。
 - 入口必须是 `scripts\pyinstaller_entry.py`：`canvas_helper\__main__.py` 里的都是
   相对导入，被当成独立脚本分析会直接失败。
 - `--icon` 取仓库里的 `docs\icons\canvashelper.ico`（16~128 BMP + 256 PNG 七档）。
@@ -84,6 +97,23 @@ python -m build
 > **刻意不上传 PyPI。** 上传即等于把代码公开。第 3 节的 scrub 已随转公开
 > 执行完毕（域名与课程号已配置化/示例化），是否上 PyPI 另行决定；
 > CI 每次推送都跑 `pip install -e .`，已经足以持续验证 `pyproject.toml` 没写坏。
+
+### 关于旧 pip（Python 3.9 / 3.10 自带的那两个）
+
+`requires-python` 已降到 **3.9**，但 3.9 自带 pip 20.2、3.10 自带 pip 21.2，都低于
+21.3——**editable 安装（`pip install -e .`）在它们上面走的是 `setup.py develop`
+老路**，只认 `setup.py` 里的元数据，不读 `pyproject.toml` 的 `[project]`。
+所以仓库根上留了一个 `setup.py` 垫片：当 setuptools >= 61（认 PEP 621）时它只做
+一次空 `setup()` 调用，一切以 `pyproject.toml` 为准，不会变成第二份要同步的真相；
+只有旧环境才会用到里面的精简元数据副本（版本号仍从 `__init__.py` 读）。
+
+普通（非 editable）`pip install .` 不受影响：它走 PEP 517 构建隔离，会装上
+`build-system` 里声明的 setuptools，照样能读 `[project]`。
+
+另一处与 3.9 相关的依赖细节：**playwright 从 1.61 起要求 Python >= 3.10**，1.60 是
+最后一个支持 3.9 的版本。所以 `pyproject.toml` 里写的是 `playwright>=1.49`，由 pip 按
+解释器挑版本——3.9 的机器落到 1.60，3.10 以上照旧拿最新。在 3.9 上验证时用
+`python -m pip show playwright` 确认一下装的是哪个版本即可。
 
 ## 5. 代码签名（需要花钱 / 需要你本人操作）
 
@@ -142,11 +172,11 @@ signtool verify /pa dist\CanvasHelper\CanvasHelper.exe
 ## 6. 发布步骤清单
 
 - [ ] `ruff` / `mypy` / `smoke` / `pytest` 四项本地全绿
-- [ ] CI 四个 Python 版本全绿
+- [ ] CI 六个 Python 版本全绿
 - [ ] `pyproject.toml` 与 `__version__` 一致
 - [ ] `CHANGELOG.md` 的 `[未发布]` 挪进新小节并写日期
-- [ ] 打标签 `git tag vX.Y.Z && git push --tags`
+- [ ] 打标签 `git tag vX.Y.Z && git push origin vX.Y.Z`（自动出包并发布 Release）
+- [ ] 下载 Release 里的 exe 包，在**没装 Python** 的机器上跑一遍 GUI + 同步
 - [ ] `python -m build` 出包并**本地试装**一次
-- [ ] （可选）PyInstaller 出单目录包，实机跑一遍 GUI + 同步
 - [ ] （转公开时）完成第 3 节 scrub 并重新截图
 - [ ] （转公开时）申请签名并更新 README 的安装说明

@@ -448,6 +448,8 @@ class App(tk.Tk):
         ttk.Button(btns, text="一键清理缓存", command=self.do_clean_cache).pack(side="left", padx=6)
         ttk.Button(btns, text="整理讲义目录", command=self.do_tidy).pack(side="left", padx=6)
         ttk.Button(btns, text="打开数据目录", command=self.open_project).pack(side="left")
+        ttk.Button(btns, text="安装 Chromium", command=self.do_install_browser).pack(
+            side="left", padx=(6, 0))
 
         ttk.Label(
             tab,
@@ -775,6 +777,24 @@ class App(tk.Tk):
             self.do_load_deadlines()
 
         self.bg(job, on_done=done)
+
+    def do_install_browser(self) -> None:
+        """下载 Playwright 自带的 Chromium：只有系统没有 Edge 时才需要。"""
+        from .auth import install_chromium
+
+        if not messagebox.askyesno(
+                APP_NAME,
+                "只有系统里没有 Microsoft Edge 时才需要这一步。\n\n"
+                "将下载约 150 MB 的 Chromium 到本机，不影响已有文件与登录态。继续？"):
+            return
+
+        def done(ok):
+            self.log("Chromium 已就绪，可以重新登录了" if ok
+                     else "Chromium 下载失败，详见上方日志；也可以直接装 Microsoft Edge")
+            messagebox.showinfo(APP_NAME, "Chromium 已就绪，重新登录即可" if ok
+                                else "下载失败，详见日志")
+
+        self.bg(lambda: install_chromium(progress=self._progress), on_done=done)
 
     def do_clean_cache(self) -> None:
         """一键清理缓存：勾选 -> 确认 -> 后台执行。"""

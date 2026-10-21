@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import time
 from collections.abc import Callable
 from contextlib import suppress
@@ -17,6 +19,69 @@ LOGIN_PROBE = "/api/v1/users/self/profile"
 log = get_logger()
 
 StatusCb = Callable[[str], None]
+
+
+class BrowserUnavailable(RuntimeError):
+    """系统 Edge 与 Playwright 内置 Chromium 都起不来。"""
+
+
+# 打包成 exe 分发时最容易踩的一步：程序默认驱动系统自带的 Edge（不额外下载任何
+# 浏览器），但精简系统 / 非 Windows 系统上 Edge 可能根本不存在；此时唯一出路是
+# 装 Playwright 自带的 Chromium。这句话在两处失败后原样抛给用户，别让人对着
+# "Executable doesn't exist" 猜。
+BROWSER_HELP = (
+    "没有可用的浏览器，无法读取 Canvas。\n\n"
+    "本程序优先驱动系统自带的 Microsoft Edge；Edge 不可用时会退回 Playwright "
+    "自带的 Chromium。两者都起不来时，任选一种解决：\n"
+    "  1. 装回 Microsoft Edge（Windows 10/11 一般自带）；\n"
+    "  2. 下载 Chromium：设置页点「安装 Chromium」，"
+    "或命令行运行 python -m canvas_helper install-browser。"
+)
+
+
+def install_chromium(progress: StatusCb | None = None) -> bool:
+    """下载 Playwright 自带的 Chromium（约 150 MB），成功返回 True。
+
+    只有 Edge 缺失时才需要——正常情况下程序直接驱动系统 Edge，不下载任何浏览器。
+    走 Playwright 自己的 driver（node + cli.js），源码运行与 PyInstaller 单目录包
+    都能用，因为 ``--collect-all playwright`` 已经把 driver 一起打进去了。
+    """
+    say = progress or _noop
+    cmd: list[str]
+    env: dict[str, str] | None
+    try:
+        from playwright._impl._driver import compute_driver_executable, get_driver_env
+
+        node, cli = compute_driver_executable()
+        cmd, env = [node, cli, "install", "chromium"], get_driver_env()
+    except Exception:
+        # 很旧的 playwright（1.3x 早期）没有这组内部 API；打包版里 sys.executable
+        # 是自己，不能再 `-m playwright`，只能提示用户改走「装 Edge」。
+        if getattr(sys, "frozen", False):
+            log.error("打包版无法自动下载 Chromium，请改装修好的 Microsoft Edge")
+            return False
+        cmd, env = [sys.executable, "-m", "playwright", "install", "chromium"], None
+    say("正在下载 Chromium（约 150 MB，视网速可能要几分钟）…")
+    try:
+        proc = subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=1800,
+            check=False,  # 退出码自己看：失败要转成「可读的提示」而不是抛栈
+        )
+    except Exception as exc:
+        log.error("下载 Chromium 失败: %s", exc)
+        return False
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()[-500:]
+        log.error("下载 Chromium 失败（退出码 %s）: %s", proc.returncode, tail)
+        return False
+    say("Chromium 安装完成")
+    return True
+
 
 # Chromium 的 headless 模式不会加载 profile 里已落盘的 cookie（已实测：磁盘上有、
 # headless 上下文读不到），因此改为显式导出/导入 cookie，两条路径都可靠。
@@ -93,9 +158,16 @@ class CanvasSession:
         }
         try:
             return p.chromium.launch_persistent_context(channel=self.channel, **kwargs)
-        except Exception as exc:  # Edge 缺失等
-            log.warning("使用 %s 启动失败(%s)，回退到内置 chromium", self.channel, exc)
+        except Exception as exc:  # Edge 缺失 / 版本过旧 / 被组策略禁用
+            log.warning("用 %s 启动失败(%s)，改试 Playwright 自带的 Chromium",
+                        self.channel, exc)
+        try:
             return p.chromium.launch_persistent_context(**kwargs)
+        except Exception as exc:
+            # 走到这里说明「Edge 没有 + 内置 Chromium 也没下载」，是最容易让用户
+            # 卡死的一种情况：给出能照做的两条路，而不是原始的 driver 报错。
+            log.error("自带的 Chromium 也起不来: %s", exc)
+            raise BrowserUnavailable(BROWSER_HELP) from exc
 
     def start(self, headless: bool = True) -> None:
         if self._ctx is not None:

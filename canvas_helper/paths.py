@@ -9,11 +9,14 @@ import os
 import shutil
 import sys
 from contextlib import suppress
-from datetime import UTC, datetime, tzinfo
+from datetime import datetime, timezone, tzinfo
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+# 3.9 兼容：datetime.UTC 这个常量是 3.11 才加的，旧解释器上取不到。
+UTC = timezone.utc
 
 # ---------- 目录约定 ----------
 # 源码 / 安装位置。只读用途：定位包、作为计划任务的工作目录。
@@ -368,8 +371,25 @@ def clear_auth_needed() -> bool:
     return True
 
 
-# 与 deskbox / extras 的写法一致：时区常量提模块级，不再每次调用现 import + 构造
-HK = ZoneInfo("Asia/Hong_Kong")
+def zone_or_none(name: str) -> tzinfo | None:
+    """按 IANA 名取时区；取不到就返回 None，**绝不抛异常**。
+
+    Windows 自身不带 IANA 时区库，全靠依赖里的 ``tzdata``。打包漏带、或用户的
+    环境装坏了，模块级的 ``ZoneInfo(...)`` 就会在 import 阶段把整个程序打死——
+    所以凡是「可能拿不到」的地方都走这里，最差退化成「跟随系统时区」。
+    """
+    if not name:
+        return None
+    try:
+        return ZoneInfo(name)
+    except Exception:  # ZoneInfoNotFoundError / ValueError 等
+        return None
+
+
+# 兼容别名：历史常量（香港时区）。新代码请用 now_local / to_local——它们跟随
+# 配置项 timezone，换学校时才不会把截止时间算错几个小时。
+# 取不到时区库时为 None：只影响这个别名，主流程照旧走系统时区。
+HK = zone_or_none("Asia/Hong_Kong")
 
 #: 时区解析缓存：(配置里的时区名, 解析结果)。None 表示「跟随系统本地时区」。
 _tz_cache: tuple[str, tzinfo | None] | None = None
@@ -387,13 +407,9 @@ def tz() -> tzinfo | None:
     name = cfg_str("timezone")
     if _tz_cache is not None and _tz_cache[0] == name:
         return _tz_cache[1]
-    zone: tzinfo | None = None
-    if name:
-        try:
-            zone = ZoneInfo(name)
-        except Exception as exc:  # ZoneInfoNotFoundError / ValueError 等
-            get_logger().warning("时区配置无效（%s），改用系统时区: %s", name, exc)
-            zone = None
+    zone = zone_or_none(name)
+    if name and zone is None:
+        get_logger().warning("时区配置无效（%s），改用系统时区", name)
     _tz_cache = (name, zone)
     return zone
 

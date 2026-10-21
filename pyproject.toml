@@ -10,7 +10,7 @@ description = "Canvas 课程内容同步与学习辅助：按既有目录规则�
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 authors = [{ name = "Botherain" }]
 keywords = ["canvas", "lms", "sync", "deskbox", "tkinter", "education"]
 classifiers = [
@@ -20,6 +20,8 @@ classifiers = [
     "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -28,7 +30,11 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "playwright>=1.63",
+    # 下限取 1.49 而不是最新：playwright 从 1.61 起要求 Python >= 3.10，而本项目
+    # 地板是 3.9。写成 >=1.49 后交给 pip 解析——3.9 的机器会自动落到 1.60（最后
+    # 一个还支持 3.9 的版本），3.10+ 照旧拿最新。两边的 API（持久化上下文 /
+    # channel / context.request / cookies）都够老，不存在版本差异。
+    "playwright>=1.49",
     "tzdata>=2024.1",
 ]
 
@@ -60,7 +66,8 @@ packages = ["canvas_helper"]
 # ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+# 与 requires-python 一致：规则按 3.9 判，UP 族才不会把 3.9 不支持的写法当成「现代化」推给学生。
+target-version = "py39"
 
 [tool.ruff.lint]
 # 只选「能真抓出问题」的族，不做无意义的风格争论
@@ -89,6 +96,8 @@ ignore = [
     "RUF001", "RUF002", "RUF003",   # 「含糊 Unicode」——本项目注释与用户文案全是中文，
                                      # 全角标点是有意的，不接受改写成半角
     "PLW0603",                       # global：logger 缓存与自检计数器就是为此而生
+    "PERF203",    # 循环里的 try/except：单个附件/接口失败必须单独容错、不能中断整轮。
+                  # 按 py311 判定时这条不提示（零开销异常），降到 py39 才出现——开销可接受。
     "RUF012",     # 可变类属性注解
     "E501",       # 行长交给 line-length + 人工判断，不做强制换行（会破坏中文注释可读性）
 ]
@@ -97,7 +106,10 @@ ignore = [
 # 类型检查（python -m mypy ；CI 每次推送都跑，配置见 files）
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.11"
+# 程序地板是 3.9（requires-python），但 mypy 自己已经不支持把 3.9 当目标
+# （1.19 起下限 3.10），只能按最接近的 3.10 检查；3.9 的真实兼容性由 CI 的
+# 「离线自检 · Python 3.9」job 实跑保证，不靠类型检查器。
+python_version = "3.10"
 files = ["canvas_helper", "tests", "scripts"]
 show_error_codes = true
 # 无注解的函数体也照样检查：本项目多数函数已带注解，未带的那几个恰恰是最容易

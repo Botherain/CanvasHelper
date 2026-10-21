@@ -1,0 +1,99 @@
+name: Release
+
+# 推一个形如 v1.2.0 的 tag 就构建并发布，无需本地打包：
+#   git tag v1.2.0 && git push origin v1.2.0
+#
+# 手动触发只构建、不发布（产物从 Actions 页面下载），用来验证打包链路是否还通。
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 构建 wheel / sdist / exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        # 不装 dev extra：发布只需要运行时依赖 + build + pyinstaller
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install build pyinstaller
+
+      - name: 校验 tag 与版本号一致
+        # 打错 tag（比如忘了改 __version__）在这里就拦住，不要发出去再发现
+        shell: python
+        run: |
+          import os, pathlib, re
+          tag = os.environ.get("GITHUB_REF_NAME", "")
+          src = pathlib.Path("canvas_helper/__init__.py").read_text(encoding="utf-8")
+          ver = re.search(r'__version__\s*=\s*"([^"]+)"', src).group(1)
+          print(f"tag={tag!r} version={ver!r}")
+          if tag.startswith("v") and tag[1:] != ver:
+              raise SystemExit(f"tag {tag} 与 __version__ {ver} 不一致")
+
+      - name: 构建 wheel + sdist
+        run: python -m build
+
+      - name: 构建 exe（单目录）
+        # 参数全在 CanvasHelper.spec 里：playwright driver 与 tzdata 都在那儿声明，
+        # 不靠命令行现敲，避免「本地能打包、CI 打出来少东西」
+        run: pyinstaller --noconfirm --clean CanvasHelper.spec
+
+      - name: 打 zip
+        run: |
+          Compress-Archive -Path dist\CanvasHelper -DestinationPath dist\CanvasHelper-${{ github.ref_name }}-win64.zip -Force
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - name: 生成 Release 说明（从 CHANGELOG 取本节）
+        shell: python
+        run: |
+          import pathlib, re
+          src = pathlib.Path("canvas_helper/__init__.py").read_text(encoding="utf-8")
+          ver = re.search(r'__version__\s*=\s*"([^"]+)"', src).group(1)
+          log = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          m = re.search(rf"^## \[{re.escape(ver)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+                        log, re.MULTILINE | re.DOTALL)
+          body = (m.group(1).strip() if m else "见 CHANGELOG.md")
+          pathlib.Path("release-notes.md").write_text(body + "\n", encoding="utf-8")
+          print(body[:400])
+
+      - name: 发布到 GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            --title "CanvasHelper ${{ github.ref_name }}" `
+            --notes-file release-notes.md `
+            dist/*.whl dist/*.tar.gz dist/*.zip
+
+      - name: 手动触发时保留产物
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*

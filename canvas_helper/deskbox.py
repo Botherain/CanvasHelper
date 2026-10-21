@@ -13,10 +13,9 @@ import uuid
 from collections.abc import Callable
 from ctypes import wintypes
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from .canvas_api import Course, Item
 from .paths import (
@@ -27,12 +26,17 @@ from .paths import (
     now_local,
     save_state,
     to_local,
+    zone_or_none,
 )
+
+# 3.9 兼容：datetime.UTC 这个常量是 3.11 才加的，旧解释器上取不到。
+UTC = timezone.utc
 
 log = get_logger()
 #: 兼容别名：历史常量（香港时区）。新代码请用 :func:`canvas_helper.paths.to_local`
 #: ——它跟随配置项 ``timezone``，换学校时才不会把截止时间算错几个小时。
-HK = ZoneInfo("Asia/Hong_Kong")
+#: 取不到时区库时为 None（Windows 的 IANA 库来自 tzdata），不影响主流程。
+HK = zone_or_none("Asia/Hong_Kong")
 
 HTML_RE = re.compile(r"<[^>]+>")
 
@@ -87,8 +91,11 @@ def _strip_html(text: str, limit: int = 600) -> str:
 def _parse_due(value: str | None) -> datetime | None:
     if not value:
         return None
+    # 3.11 起 fromisoformat 才认结尾的 Z；旧解释器上先换成 +00:00，否则 Canvas
+    # 返回的 "2026-11-20T15:59:00Z" 会 ValueError，整条截止时间被当成「没有」。
+    text = value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value
     try:
-        dt = datetime.fromisoformat(value)  # 3.11+ 原生支持结尾的 Z
+        dt = datetime.fromisoformat(text)
     except ValueError:
         return None
     if dt.tzinfo is None:

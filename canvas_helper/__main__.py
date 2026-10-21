@@ -170,7 +170,17 @@ def main(argv: list[str] | None = None) -> int:
         print("  python -m canvas_helper tidy --apply")
         return 0
 
-    print("用法: python -m canvas_helper [gui|sync|report|flush|clean|tidy|login|courses|schools] "
+    if cmd == "install-browser":
+        from .auth import install_chromium
+
+        if install_chromium(progress=log.info):
+            log.info("Chromium 已就绪：之后没有 Edge 也能正常登录")
+            return 0
+        log.error("Chromium 下载失败。也可以直接装 Microsoft Edge，程序会优先用它")
+        return 1
+
+    print("用法: python -m canvas_helper "
+          "[gui|sync|report|flush|clean|tidy|login|courses|schools|install-browser] "
           "[--headless] [--version]")
     print("  gui      启动图形界面（默认）")
     print("  sync     立即同步课程文件与待办")
@@ -181,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  login    交互式登录并保存会话")
     print("  courses  列出已识别课程")
     print("  schools  列出 Canvas 院校清单（--update 在线更新；可带关键词过滤）")
+    print("  install-browser  下载 Playwright 自带的 Chromium（没有 Edge 时才需要）")
     return 2
 
 

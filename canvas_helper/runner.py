@@ -6,7 +6,7 @@ import ctypes
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import deskbox, extras
@@ -22,6 +22,9 @@ from .paths import (
     now_local,
     save_state,
 )
+
+# 3.9 兼容：datetime.UTC 这个常量是 3.11 才加的，旧解释器上取不到。
+UTC = timezone.utc
 
 log = get_logger()
 Progress = Callable[[str], None]
