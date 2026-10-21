@@ -9,9 +9,26 @@
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
+import sys
+from pathlib import Path
+
+# 仓库根目录（本 spec 所在目录）必须显式加进 pathex。Analysis 默认只把「入口脚本
+# 所在目录」也就是 scripts\ 加进搜索路径；而 pip install -e 装出来的 PEP 660 版本
+# 注册的是 MetaPathFinder、并不往 sys.path 里加目录，PyInstaller 的分析器看不到
+# canvas_helper——症状极隐蔽：构建成功、体积正常，exe 一启动就
+# ModuleNotFoundError: No module named 'canvas_helper'。
+HERE = Path(SPECPATH).resolve()  # noqa: F821 - SPECPATH 由 PyInstaller 注入
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))  # 让下面的 collect_submodules 能导入它
+
+pathex = [str(HERE)]
+
 datas = []
 binaries = []
 hiddenimports = ['canvas_helper']
+# 逐个模块显式收集，而不是只写包名：函数内 import（gui -> runner -> cleaner 之类）
+# 一旦被静态分析漏掉，就只有用户点到那个功能时才会发现。
+hiddenimports += collect_submodules('canvas_helper')
 
 # Playwright：不只 import，还要 driver（node.exe + cli.js）。缺了它「安装 Chromium」
 # 无从执行，Edge 不在的机器上就彻底没退路。
@@ -29,7 +46,7 @@ hiddenimports += collect_submodules('tzdata')
 
 a = Analysis(
     ['scripts/pyinstaller_entry.py'],
-    pathex=[],
+    pathex=pathex,
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

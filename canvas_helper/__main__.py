@@ -2,20 +2,51 @@
 
 from __future__ import annotations
 
+import io
 import sys
 from pathlib import Path
 
 from .paths import ensure_dirs, get_logger
 
+#: 自检要导入的子模块。打包时漏掉任何一个，exe 都会在用户点开对应功能时才炸
+#: （PyInstaller 是静态分析，函数内 import 漏了不会报错，只是运行期找不到）。
+_SUBMODULES = (
+    "auth", "canvas_api", "classify", "cleaner", "coursecode", "deskbox",
+    "extract", "extras", "filesync", "gui", "paths", "runner", "scheduler",
+    "schoollist", "schoolpicker", "schools", "tidy",
+)
+
+
+def _selftest() -> int:
+    """导入全部子模块，成功返回 0、失败返回 1。
+
+    给打包产物用的：windowed exe 里抛异常会弹崩溃对话框把 CI 挂住，所以这里
+    把异常吞掉、只用退出码表达结果。``--selftest`` 在源码环境下同样可用。
+    """
+    import importlib
+
+    try:
+        for name in _SUBMODULES:
+            importlib.import_module(f".{name}", __package__)
+    except Exception:
+        return 1
+    return 0
+
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    # Windows 控制台默认 GBK，中文输出会 UnicodeEncodeError；pythonw 下
-    # stdout 是 None，必须先判空。放在最前面：编码要在第一次 print 前切。
-    if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    # Windows 控制台默认 GBK，中文输出会 UnicodeEncodeError；pythonw / 打包成
+    # windowed exe 时 stdout 是 None，连 print 都会 RuntimeError("lost sys.stdout")。
+    # 前者切编码，后者塞一个丢弃用的缓冲区——后面的代码就不用逐处判空了。
+    if sys.stdout is None:
+        sys.stdout = io.StringIO()
+    elif hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     ensure_dirs()
     log = get_logger()
+
+    if argv and argv[0] == "--selftest":
+        return _selftest()
 
     if argv and argv[0] in ("-V", "--version"):
         from . import APP_NAME, __version__

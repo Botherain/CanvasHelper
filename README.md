@@ -277,6 +277,7 @@ python -m canvas_helper clean --login      # 连登录态一起清（之后需�
 python -m canvas_helper tidy               # 预览讲义整理方案（不写盘）
 python -m canvas_helper tidy --apply       # 确认后执行：散件移进章节目录
 python -m canvas_helper install-browser    # 下载 Chromium（系统没有 Edge 时才需要）
+python -m canvas_helper --selftest         # 自检：确认所有子模块都在（排查坏包用）
 python -m canvas_helper --version          # 版本号
 ```
 
@@ -382,7 +383,7 @@ python -m mypy
 
 后三个都是 dev extra 里的工具：`python -m pip install -e ".[dev]"`。
 
-256 项断言全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 256/256。
+257 项断言全部**离线**执行，且与本机数据解耦——没有真实课程目录 / `todo.json` 的机器（含 CI runner）会自动按蓝本造 fixture，结果应当一致为 257/257。
 
 两种入口共用同一份实现（`tests\smoke.py` 里的 `s1_…`～`s15_…`），因此不会出现「脚本绿、pytest 红」的分叉。小节之间只通过夹具共享数据，**任意一节都能单独跑**：
 

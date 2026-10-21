@@ -5,6 +5,15 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.1] - 2026-10-21
+
+修 v1.2.0 那个「能下载、一启动就崩」的 exe。
+
+- **根因**：`CanvasHelper.spec` 里 `pathex=[]`，PyInstaller 的分析器只搜索入口脚本所在的 `scripts\`；而发布流程用的 `pip install -e .` 走 PEP 660，建立的是 MetaPathFinder、并不把仓库目录加进 `sys.path`。两边一叠加，`canvas_helper` 整个没进包——但构建照旧成功、体积也正常，没有任何环节报警。
+- **修法**：`pathex` 显式指向仓库根目录，并加 `collect_submodules('canvas_helper')` 逐个收集子模块；发布流程改用非 editable 的 `pip install .`。
+- **补门禁**：新增 `python -m canvas_helper --selftest`（逐个导入全部子模块，只用退出码表达结果），`release.yml` 在打 zip 之前必须跑通它，超时或非零直接失败；离线自检 256 -> 257，加一条断言盯着 `pathex` 不许再被改回去。
+- 顺带修掉 windowed exe 里 `print` 的问题：`sys.stdout` 为 `None` 时 `print` 会抛 `RuntimeError("lost sys.stdout")`，现在入口处换成丢弃用的缓冲区，`--version` 与用法提示在打包版里也不会再弹崩溃对话框。
+
 ## [1.2.0] - 2026-10-21
 
 本版把 Python 地板从 3.11 降到 3.9（让更多学生装得上），补上旧 pip 的安装垫片、
@@ -412,7 +421,8 @@ Edge 缺失时的浏览器兜底，并把「打包 + 发布」整条链路自动
   脚本入口与 pytest 双跑，Windows runner。
 - 计划任务在真实环境跑通验证，`schedule.enabled` 默认仍为 `False`（不替用户做决定）。
 
-[未发布]: https://github.com/Botherain/CanvasHelper/compare/v1.2.0...HEAD
+[未发布]: https://github.com/Botherain/CanvasHelper/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/Botherain/CanvasHelper/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Botherain/CanvasHelper/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Botherain/CanvasHelper/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Botherain/CanvasHelper/releases/tag/v1.0.0

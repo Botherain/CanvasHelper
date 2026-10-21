@@ -729,6 +729,10 @@ def s9_packaging() -> None:
     check("打包 spec 入库并带上 playwright driver 与 tzdata",
           "collect_all('playwright')" in spec_txt
           and "collect_data_files('tzdata')" in spec_txt, str(spec))
+    # v1.2.0 的 exe 就是这么坏的：分析器只搜 scripts\，而 editable 安装不往
+    # sys.path 加目录，于是 canvas_helper 整个没进包，构建却一路绿灯。
+    check("打包 spec 把仓库根目录放进 pathex",
+          "pathex = [str(HERE)]" in spec_txt and "pathex=pathex" in spec_txt)
     check("推 tag 自动发布",
           (ROOT / ".github" / "workflows" / "release.yml").is_file())
     # 3.9 地板：datetime.UTC 是 3.11 才有的常量。mypy 按 3.10 检查抓不到它，

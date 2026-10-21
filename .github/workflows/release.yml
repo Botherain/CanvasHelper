@@ -37,10 +37,13 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install
-        # 不装 dev extra：发布只需要运行时依赖 + build + pyinstaller
+        # 不装 dev extra：发布只需要运行时依赖 + build + pyinstaller。
+        # 这里刻意用非 editable 的 `pip install .`：`-e .` 走 PEP 660，只会注册一个
+        # MetaPathFinder、不往 sys.path 加目录，PyInstaller 的分析器看不到
+        # canvas_helper，打出来的 exe 一启动就 ModuleNotFoundError（v1.2.0 的坑）。
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .
+          python -m pip install .
           python -m pip install build pyinstaller
 
       - name: 校验 tag 与版本号一致
@@ -62,6 +65,21 @@ jobs:
         # 参数全在 CanvasHelper.spec 里：playwright driver 与 tzdata 都在那儿声明，
         # 不靠命令行现敲，避免「本地能打包、CI 打出来少东西」
         run: pyinstaller --noconfirm --clean CanvasHelper.spec
+
+      - name: 冒烟：exe 必须能启动
+        # 补出来的教训：v1.2.0 的 exe 因分析器找不到 canvas_helper，构建成功、
+        # 体积正常，用户一启动就是 ModuleNotFoundError。--selftest 会逐个导入
+        # 全部子模块，只看退出码（windowed exe 里异常会弹对话框，所以加了超时）。
+        shell: pwsh
+        run: |
+          $exe = "dist\CanvasHelper\CanvasHelper.exe"
+          $p = Start-Process -FilePath $exe -ArgumentList "--selftest" -PassThru -WindowStyle Hidden
+          if (-not $p.WaitForExit(180000)) {
+            $p.Kill()
+            throw "exe 自检超时：很可能弹了崩溃对话框"
+          }
+          if ($p.ExitCode -ne 0) { throw "exe 自检失败，退出码 $($p.ExitCode)" }
+          Write-Host "exe 自检通过：全部子模块可导入"
 
       - name: 打 zip
         run: |
