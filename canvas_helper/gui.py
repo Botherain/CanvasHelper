@@ -120,6 +120,8 @@ class App(tk.Tk):
         self._busy = True
         self._on_done = on_done
         self._on_error = on_error
+        # indeterminate 才会动；空闲态是 determinate 的 0%，切回来再 start
+        self.progress_bar.configure(mode="indeterminate")
         self.progress_bar.start(12)
         self._set_status("任务进行中…")
 
@@ -157,7 +159,15 @@ class App(tk.Tk):
     def _finish(self) -> None:
         self._busy = False
         self.progress_bar.stop()
+        # 收尾先走满再回 0：任务结束瞬间直接清零会看不出「刚跑完」
+        self.progress_bar.configure(mode="determinate", value=100)
+        self.after(500, self._reset_progress)
         self._set_status("就绪")
+
+    def _reset_progress(self) -> None:
+        if self._busy:  # 收尾延迟期间又开了新任务，别把新进度条清掉
+            return
+        self.progress_bar.configure(value=0)
 
     def _safe_call(self, fn, payload) -> None:
         if not fn:
@@ -207,26 +217,33 @@ class App(tk.Tk):
         ttk.Button(head, text="打开 Canvas", command=self.open_canvas).pack(side="right", padx=6)
         ttk.Button(head, text="选择院校", command=self.do_pick_school).pack(side="right", padx=6)
 
-        # 标签页
+        # 日志 + 状态栏（进度条 / 状态文字）先占位、贴底。
+        # ttk.Notebook 的请求高度由最高的那个标签页决定：设置页有 24 行控件，
+        # 实测把 notebook 的请求高度撑到 760px。若 notebook 先 pack，packer 会把
+        # 剩余空间全给它、底部只剩 3px —— 进度条与状态文字被整体裁掉（默认窗口
+        # 1200x820 即如此，要把窗口拉到约 960px 高才显现）。
+        # 改成先 pack 且 side="bottom"，notebook 只取剩余空间，状态栏恒可见。
+        bottom = ttk.Frame(self, padding=(12, 0, 12, 8))
+        bottom.pack(fill="x", side="bottom")
+        self.log_text = ScrolledText(bottom, height=4, font=("Consolas", 9), state="normal")
+        self.log_text.pack(fill="x")
+        bar = ttk.Frame(bottom)
+        bar.pack(fill="x", pady=(6, 0))
+        # 空闲时停在 0% 的确定态（可见的空槽），任务进行中切 indeterminate 跑动画
+        self.progress_bar = ttk.Progressbar(bar, mode="determinate", length=200,
+                                            maximum=100, value=0)
+        self.progress_bar.pack(side="left")
+        self.status_var = tk.StringVar(value="就绪")
+        ttk.Label(bar, textvariable=self.status_var).pack(side="left", padx=10)
+
+        # 标签页（在状态栏之后 pack，吃剩下的空间）
         self.nb = ttk.Notebook(self)
-        self.nb.pack(fill="both", expand=True, padx=12, pady=(0, 6))
         self._build_sync_tab()
         self._build_todo_tab()
         self._build_notice_tab()
         self._build_grade_tab()
         self._build_settings_tab()
-
-        # 日志 + 状态栏
-        bottom = ttk.Frame(self, padding=(12, 0, 12, 8))
-        bottom.pack(fill="both", expand=False)
-        self.log_text = ScrolledText(bottom, height=6, font=("Consolas", 9), state="normal")
-        self.log_text.pack(fill="x")
-        bar = ttk.Frame(bottom)
-        bar.pack(fill="x", pady=(6, 0))
-        self.progress_bar = ttk.Progressbar(bar, mode="indeterminate", length=200)
-        self.progress_bar.pack(side="left")
-        self.status_var = tk.StringVar(value="就绪")
-        ttk.Label(bar, textvariable=self.status_var).pack(side="left", padx=10)
+        self.nb.pack(fill="both", expand=True, padx=12, pady=(0, 6))
 
     # ----- 课程同步页 -----
 
@@ -335,8 +352,18 @@ class App(tk.Tk):
         self.grade_tree.pack(fill="both", expand=True, pady=(8, 0))
 
     def _build_settings_tab(self) -> None:
-        tab = ttk.Frame(self.nb, padding=14)
-        self.nb.add(tab, text=" 设置 ")
+        outer = ttk.Frame(self.nb, padding=14)
+        self.nb.add(outer, text=" 设置 ")
+        # 这一页有 24 行控件，高度远超标签页可视区，而 grid 本身没有滚动机制：
+        # 窗口一矮，底部几行（计划任务、按钮组、路径说明）就掉到可视区外且够不着。
+        # 套一层 Canvas + 纵向滚动条，内容帧 tab 放进 Canvas 里。
+        canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
+        sb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        tab = ttk.Frame(canvas)
+        win = canvas.create_window((0, 0), window=tab, anchor="nw")
 
         self.var_root = tk.StringVar(value=self.cfg["classes_root"])
         self.var_home = tk.StringVar(value=self.cfg.get("canvas_home") or "")
@@ -427,6 +454,31 @@ class App(tk.Tk):
             text=f"浏览器登录态保存在：{PROFILE_DIR}  ·  日志：{LOG_PATH}",
             foreground="#666",
         ).grid(row=23, column=0, columnspan=3, sticky="w", pady=(12, 0))
+
+        # 内容帧宽度跟随 Canvas；滚动区按内容实际高度计算，
+        # 放得下时把滚动条置灰（避免一条永远不动却占宽的滚动条）。
+        def _sync(_event: Any = None) -> None:
+            canvas.itemconfigure(win, width=canvas.winfo_width())
+            bbox = canvas.bbox("all")
+            if bbox:
+                canvas.configure(scrollregion=bbox)
+                tall = bbox[3] - bbox[1] > canvas.winfo_height()
+                # ttk.Scrollbar 没有 -state 选项，走 ttk 的 state 子命令
+                sb.state(["!disabled"] if tall else ["disabled"])
+
+        def _wheel(event: Any) -> None:
+            canvas.yview_scroll(-int(event.delta / 120), "units")
+
+        def _bind_wheel(w: Any) -> None:
+            # 滚轮只绑 Canvas 的话，鼠标停在 Entry / Checkbutton 上就滚不动，故递归绑
+            w.bind("<MouseWheel>", _wheel)
+            for child in w.winfo_children():
+                _bind_wheel(child)
+
+        tab.bind("<Configure>", _sync)
+        canvas.bind("<Configure>", _sync)
+        canvas.bind("<MouseWheel>", _wheel)
+        _bind_wheel(tab)
 
     # ---------- 交互 ----------
 

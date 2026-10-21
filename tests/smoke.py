@@ -710,6 +710,11 @@ def s9_packaging() -> None:
     check("只打包 canvas_helper", 'packages = ["canvas_helper"]' in pt)
     check("声明 MIT 且 LICENSE 存在",
           'license = "MIT"' in pt and (ROOT / "LICENSE").is_file())
+    # 静默回归：状态栏若排在标签页之后 pack，会被 notebook 的请求高度（设置页
+    # 24 行撑出的 760px）挤到 3px——进度条与状态文字直接看不见，但不报任何错。
+    gui_src = (ROOT / "canvas_helper" / "gui.py").read_text(encoding="utf-8")
+    check("状态栏先于标签页 pack（否则进度条被挤掉）",
+          gui_src.find("bottom.pack(") < gui_src.find("self.nb.pack("))
 
 
 def s10_extract() -> None:

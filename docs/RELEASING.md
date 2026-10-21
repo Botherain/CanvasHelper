@@ -8,7 +8,7 @@
 ```powershell
 python -m ruff check canvas_helper tests scripts  # 0 错误
 python -m mypy                             # Success: no issues found
-python tests\smoke.py                      # 249 通过, 0 失败
+python tests\smoke.py                      # 250 通过, 0 失败
 python -m pytest                           # 37 passed
 ```
 
