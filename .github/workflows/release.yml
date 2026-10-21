@@ -92,8 +92,13 @@ jobs:
             dist/*.whl dist/*.tar.gz dist/*.zip
 
       - name: 手动触发时保留产物
+        # 只留三个交付物：dist/CanvasHelper/ 是解包目录，单独传一遍等于把 zip
+        # 又拆开重复上传（含 89 MB 的 node.exe）
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: dist/*
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.zip
