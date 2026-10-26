@@ -37,8 +37,54 @@ def _cmd(sub: str) -> str:
     #
     # 现在把「定位源码目录」挪进 scripts/headless_entry.py（用 __file__ 塞
     # sys.path），命令里就只剩一个无控制台解释器，起始目录从此无关紧要。
+    #
+    # 打包版（PyInstaller）另走一条：exe 自己就是无窗口应用，直接把子命令
+    # 交给它即可。脚本目录并不在包里，旧写法注册出来的是一个**死任务**
+    # （exe 收到一个不存在的 .py 路径，只会打印用法后退出 2）。
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}" {sub}'
     entry = PROJECT_DIR / "scripts" / "headless_entry.py"
     return f'"{_pythonw()}" "{entry}" {sub}'
+
+
+def _commands() -> dict[str, str]:
+    """当前这台机器上「正确的」两条计划任务命令。"""
+    return {"sync": _cmd("sync --headless"), "report": _cmd("report --headless")}
+
+
+def _remember() -> None:
+    """把注册时用的命令记进 state，供下次启动比对（换位置后要重建）。"""
+    from .paths import load_state, save_state
+
+    state = load_state()
+    state["schedule_cmd"] = _commands()
+    save_state(state)
+
+
+def moved() -> bool:
+    """计划任务里记下的命令与当前是否一致。
+
+    换过安装位置、把源码版换成 exe（或反过来）都会不一致——此时旧任务指向
+    一个不存在的路径，会**静默失败**，所以启动时要重建一次。
+    """
+    from .paths import load_state
+
+    stored = (load_state() or {}).get("schedule_cmd") or {}
+    return any(stored.get(kind) != cmd for kind, cmd in _commands().items())
+
+
+def refresh(schedule: dict) -> list[str]:
+    """按当前程序路径重建已启用的任务，返回给界面看的日志行。"""
+    lines: list[str] = []
+    ok, msg = create_daily(schedule.get("sync_time", "08:30"))
+    lines.append("每日同步已按当前程序路径重建" if ok else f"每日同步重建失败：{msg}")
+    if schedule.get("report_enabled", True):
+        ok2, msg2 = create_weekly(
+            schedule.get("report_weekday", "MON"), schedule.get("report_time", "09:00"))
+        lines.append("每周摘要已按当前程序路径重建" if ok2 else f"每周摘要重建失败：{msg2}")
+    if ok:
+        _remember()
+    return lines
 
 
 def _run(args: list[str]) -> tuple[bool, str]:
@@ -96,6 +142,8 @@ def enable(schedule: dict) -> tuple[bool, str]:
             schedule.get("report_weekday", "MON"), schedule.get("report_time", "09:00")
         )
         msgs.append(f"每周摘要: {m2 or 'OK'}" if ok2 else f"每周摘要失败: {m2}")
+    if ok1 and ok2:
+        _remember()
     return ok1 and ok2, "\n".join(msgs)
 
 

@@ -13,7 +13,7 @@ from .paths import ensure_dirs, get_logger
 _SUBMODULES = (
     "auth", "canvas_api", "classify", "cleaner", "coursecode", "deskbox",
     "extract", "extras", "filesync", "gui", "paths", "runner", "scheduler",
-    "schoollist", "schoolpicker", "schools", "tidy", "updater",
+    "schoollist", "schoolpicker", "schools", "shortcut", "tidy", "updater",
 )
 
 

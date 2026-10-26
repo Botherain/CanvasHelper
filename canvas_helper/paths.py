@@ -186,6 +186,8 @@ _DEFAULT_STATE: dict[str, Any] = {
     "last_sync": None,
     # 更新公告的已读 / 已跳过版本号（"1.4.0" 形式）；与网络缓存无关
     "update": {},
+    # 注册计划任务时用的命令；程序被移动后启动时据此重建（否则任务静默失效）
+    "schedule_cmd": {},
 }
 
 

@@ -8,8 +8,8 @@
 ```powershell
 python -m ruff check canvas_helper tests scripts  # 0 错误
 python -m mypy                             # Success: no issues found
-python tests\smoke.py                      # 347 通过, 0 失败
-python -m pytest                           # 39 passed
+python tests\smoke.py                      # 378 通过, 0 失败
+python -m pytest                           # 40 passed
 ```
 
 改了 `pyproject.toml` 的 `version` 就必须同步改
@@ -85,7 +85,17 @@ pyinstaller --noconfirm --clean CanvasHelper.spec
   相对导入，被当成独立脚本分析会直接失败。
 - `--icon` 取仓库里的 `docs\icons\canvashelper.ico`（16~128 BMP + 256 PNG 七档）。
   换图只需改源图后重跑 `python scripts\make_icon.py`，再按本命令重打包。
-- 产物在 `dist\CanvasHelper\`，压缩成 zip 即可分发。
+- 产物在 `dist\CanvasHelper\`，压缩成 zip 即可分发。发布流程实际做的是：
+  `dist\CanvasHelper\` + 一份 `dist\README.txt`（zip 根，UTF-8 BOM，写明双击哪个文件 /
+  数据在哪 / SmartScreen 怎么过）一起打进 `CanvasHelper-<tag>-win64.zip`，并在打包后
+  校验 `README.txt` 与 `CanvasHelper/CanvasHelper.exe` 都在包里。
+  `README.txt` 必须放在 `CanvasHelper\` **外面**——放进 exe 同级目录会被「一键更新」的
+  安全阀判成「目录里有额外文件」，从此不能自动更新。
+- **exe 带版本资源**：`CanvasHelper.spec` 从 `canvas_helper/__init__.py` 读版本号，生成
+  `build/version_info.txt` 交给 PyInstaller，文件属性里能看到 `CanvasHelper 1.3.2`
+  与「MIT License」。所以「改了版本号」这件事在 exe 属性里也看得见。
+- **Release 正文** = CHANGELOG 的对应小节 + 自动追加的「下载哪个文件」表（zip / wheel /
+  源码各给谁）。这段表在 `release.yml` 里维护，改措辞只改那一处。
 - **注意**：单文件模式（`--onefile`）会让 Playwright 的浏览器与
   `%LOCALAPPDATA%` 数据目录解包路径（`_MEIPASS`）产生问题，
   本项目只支持**单目录**模式。
@@ -182,7 +192,10 @@ signtool verify /pa dist\CanvasHelper\CanvasHelper.exe
 - [ ] 打标签 `git tag vX.Y.Z && git push origin vX.Y.Z`（自动出包并发布 Release）
 - [ ] 发布后跑一次 `python -m canvas_helper update --brief`：确认应用内能看到这条版本
       与公告（它读的就是刚发的 Release；`--download` 可顺带验证下载包与 sha256）
+- [ ] 下载 Release 里的 zip，确认：根目录有 `README.txt`、双击
+      `CanvasHelper\CanvasHelper.exe` 能起来、右键属性里版本号对得上
 - [ ] 下载 Release 里的 exe 包，在**没装 Python** 的机器上跑一遍 GUI + 同步
 - [ ] `python -m build` 出包并**本地试装**一次
 - [ ] （转公开时）完成第 3 节 scrub 并重新截图
-- [ ] （转公开时）申请签名并更新 README 的安装说明
+- [ ] 签名：按 [`SIGNING.md`](SIGNING.md) 申请（SignPath Foundation 免费 / Certum ≈€49 年），
+      通过后在 `release.yml` 的「打 zip」之前插入签名步骤

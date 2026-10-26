@@ -12,10 +12,11 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 from typing import Any
 
-from . import APP_NAME, __version__, deskbox, runner, scheduler, updater
+from . import APP_NAME, __version__, deskbox, runner, scheduler, shortcut, updater
 from .canvas_api import Course
 from .classify import course_dirs, match_folder
 from .paths import (
+    DATA_DIR,
     LOG_PATH,
     PROFILE_DIR,
     canvas_home,
@@ -110,6 +111,8 @@ class App(tk.Tk):
             self.bg(job, on_done=lambda n: self.log(f"已补写 {n} 条排队待办"))
         if scheduler.status():
             self.log("计划任务：已注册每日同步/每周摘要")
+            # 程序被挪过位置时旧任务会指向不存在的路径：稍后按当前位置重建
+            self.after(2000, self._check_schedule_paths)
         # 通知不再落盘，所以打开时现拉一次；但登录态已知过期时跳过，
         # 免得刚开窗口就弹出浏览器登录框（那种情况下顶部横幅已经在提示了）
         if not auth:
@@ -260,7 +263,7 @@ class App(tk.Tk):
         ttk.Button(head, text="选择院校", command=self.do_pick_school).pack(side="right", padx=6)
 
         # 日志 + 状态栏（进度条 / 状态文字）先占位、贴底。
-        # ttk.Notebook 的请求高度由最高的那个标签页决定：设置页有 31 行控件，
+        # ttk.Notebook 的请求高度由最高的那个标签页决定：设置页有 32 行控件，
         # 实测把 notebook 的请求高度撑到 760px。若 notebook 先 pack，packer 会把
         # 剩余空间全给它、底部只剩 3px —— 进度条与状态文字被整体裁掉（默认窗口
         # 1200x820 即如此，要把窗口拉到约 960px 高才显现）。
@@ -396,7 +399,7 @@ class App(tk.Tk):
     def _build_settings_tab(self) -> None:
         outer = ttk.Frame(self.nb, padding=14)
         self.nb.add(outer, text=" 设置 ")
-        # 这一页有 31 行控件，高度远超标签页可视区，而 grid 本身没有滚动机制：
+        # 这一页有 32 行控件，高度远超标签页可视区，而 grid 本身没有滚动机制：
         # 窗口一矮，底部几行（计划任务、按钮组、路径说明）就掉到可视区外且够不着。
         # 套一层 Canvas + 纵向滚动条，内容帧 tab 放进 Canvas 里。
         canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
@@ -534,14 +537,21 @@ class App(tk.Tk):
         ttk.Button(btns, text="一键清理缓存", command=self.do_clean_cache).pack(side="left", padx=6)
         ttk.Button(btns, text="整理讲义目录", command=self.do_tidy).pack(side="left", padx=6)
         ttk.Button(btns, text="打开数据目录", command=self.open_project).pack(side="left")
+        ttk.Button(btns, text="创建桌面快捷方式",
+                   command=self.do_create_shortcut).pack(side="left", padx=6)
         ttk.Button(btns, text="安装 Chromium", command=self.do_install_browser).pack(
             side="left", padx=(6, 0))
 
         ttk.Label(
             tab,
+            text=f"本程序免安装：配置、登录态与日志都在 {DATA_DIR}（删程序目录不会丢）",
+            foreground="#666",
+        ).grid(row=30, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        ttk.Label(
+            tab,
             text=f"浏览器登录态保存在：{PROFILE_DIR}  ·  日志：{LOG_PATH}",
             foreground="#666",
-        ).grid(row=30, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ).grid(row=31, column=0, columnspan=3, sticky="w", pady=(2, 0))
         self._refresh_course_color_summary()
         self._refresh_update_summary()
         self._apply_update_banner()
@@ -954,13 +964,14 @@ class App(tk.Tk):
         def start_update() -> None:
             asset = st.asset
             app_dir = updater.current_app_dir()
-            if asset is None or app_dir is None or not updater.safe_to_replace(app_dir):
-                # 源码运行 / 没有 Windows 包 / 安装目录不适合镜像替换：
+            reason = (updater.why_not_replace(app_dir) if app_dir is not None
+                      else "源码运行，程序不会自我替换")
+            if asset is None or app_dir is None or reason:
+                # 源码运行 / 没有 Windows 包 / 安装目录不适合替换：
                 # 只给下载页，绝不擅自覆盖用户目录
-                self.log("当前环境不自动替换，已打开下载页")
-                if updater.is_frozen():
-                    self.log(f"安装目录 {app_dir} 含额外文件，自动替换会删掉它们，"
-                             "请手动解压覆盖")
+                msg = reason or "这个版本没有可用的 Windows 安装包"
+                self.log(f"不自动替换：{msg}")
+                status_var.set(f"无法自动更新：{msg}（已打开下载页）")
                 open_page()
                 return
             dl_btn.configure(state="disabled", text="正在下载…")
@@ -997,9 +1008,18 @@ class App(tk.Tk):
         ttk.Button(btns, text="以后再说" if has_update else "关闭",
                    command=close).pack(side="right")
         if has_update:
-            primary_text = ("立即下载并更新" if updater.is_frozen() and st.asset is not None
-                            else "打开下载页")
-            dl_btn = ttk.Button(btns, text=primary_text, command=start_update)
+            app_dir_now = updater.current_app_dir()
+            block = (updater.why_not_replace(app_dir_now) if app_dir_now is not None
+                     else "源码运行，程序不会自我替换")
+            can_update = st.asset is not None and app_dir_now is not None and not block
+            if not can_update:
+                # 提前把「为什么不能一键更新」说清楚，别等用户点了才发现
+                status_var.set(f"当前环境不支持自动替换：{block or '没有可用的安装包'}")
+            dl_btn = ttk.Button(
+                btns,
+                text="立即下载并更新" if can_update else "打开下载页",
+                command=start_update,
+            )
             dl_btn.pack(side="right", padx=6)
 
     def _on_update_ready(self, payload) -> None:
@@ -1083,6 +1103,49 @@ class App(tk.Tk):
             os.startfile(home + "/")
         else:
             messagebox.showinfo(APP_NAME, "请先在设置页填写「Canvas 站点地址」。")
+
+    def do_create_shortcut(self) -> None:
+        """在桌面放一个快捷方式：exe 版指 exe，源码版指 pythonw + CanvasHelper.pyw。"""
+        def job():
+            return shortcut.create(shortcut.target_for())
+
+        def done(result):
+            ok, info = result
+            if ok:
+                self.log(f"桌面快捷方式已创建：{info}")
+                messagebox.showinfo(APP_NAME, f"已在桌面创建快捷方式：\n{info}")
+            else:
+                self.log(info)
+                messagebox.showwarning(
+                    APP_NAME,
+                    f"{info}\n\n也可以手动创建：右键程序 → 发送到 → 桌面快捷方式。",
+                )
+
+        self.bg(job, on_done=done)
+
+    def _check_schedule_paths(self) -> None:
+        """程序被挪过位置（或源码版换成了 exe）后，旧计划任务会静默失效。
+
+        注册时把命令记在 ``state.schedule_cmd`` 里，这里只做字符串比对；
+        不一致才重建，平时不产生任何子进程。
+        """
+        schedule = self.cfg.get("schedule") or {}
+        if not schedule.get("enabled"):
+            return
+        try:
+            stale = scheduler.moved()
+        except Exception as exc:  # 读 state 失败不该影响启动
+            log.warning("检查计划任务路径失败: %s", exc)
+            return
+        if not stale:
+            return
+        self.log("程序路径变了，正在按当前位置重建计划任务…")
+        try:
+            for line in scheduler.refresh(schedule):
+                self.log(line)
+        except Exception as exc:
+            log.warning("重建计划任务失败: %s", exc)
+            self.log(f"计划任务重建失败：{exc}（可在设置页重新保存一次）")
 
     # ---------- 院校选择 ----------
 

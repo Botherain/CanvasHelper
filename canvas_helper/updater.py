@@ -654,25 +654,53 @@ def current_app_dir() -> Path | None:
     return Path(sys.executable).resolve().parent
 
 
+def is_writable(directory: Path) -> bool:
+    """目录能不能写。Windows 上 ``os.access`` 不看 ACL，实建一个临时文件最准。"""
+    try:
+        fd, name = tempfile.mkstemp(dir=str(directory), prefix=".ch-w-")
+    except OSError:
+        return False
+    os.close(fd)
+    with suppress(OSError):
+        os.unlink(name)
+    return True
+
+
+def why_not_replace(old_dir: Path) -> str:
+    """不能自动替换的原因；空串表示可以。
+
+    比 :func:`safe_to_replace` 多给出「为什么」——用户把程序解压进
+    ``C:\\Program Files`` 时，笼统一句「不能自动更新」根本没法自救。
+    """
+    old = Path(old_dir)
+    if not (old / "CanvasHelper.exe").is_file():
+        return "安装目录里没有 CanvasHelper.exe"
+    if old.parent == old:  # 盘符根
+        return "安装目录是盘符根目录，不安全"
+    if old.resolve() == Path.home().resolve():
+        return "安装目录是用户主目录，不安全"
+    try:
+        top = {p.name.lower() for p in old.iterdir() if not p.name.startswith(".")}
+    except OSError as exc:
+        return f"读不了安装目录：{exc}"
+    extra = sorted(top - _ALLOWED_TOP)
+    if extra:
+        shown = "、".join(extra[:3]) + ("…" if len(extra) > 3 else "")
+        return f"安装目录里除了程序文件还有：{shown}（自动替换会删掉它们）"
+    if not is_writable(old):
+        return ("安装目录不可写（常见于 C:\\Program Files）："
+                "把整个文件夹挪到 D:\\Apps 之类的位置，或用管理员身份运行")
+    return ""
+
+
 def safe_to_replace(old_dir: Path, new_dir: Path | None = None) -> bool:
     """能不能对 ``old_dir`` 做 ``/MIR`` 镜像替换。
 
     替换会删掉旧目录里多出来的文件，所以只在「这就是一个 CanvasHelper 单目录
-    构建」时才允许：目录里有 exe，顶层只有 ``CanvasHelper.exe`` 与 ``_internal``，
-    且不是盘符根 / 用户主目录。
+    构建」且目录可写时才允许：目录里有 exe，顶层只有 ``CanvasHelper.exe`` 与
+    ``_internal``，不是盘符根 / 用户主目录。
     """
-    old = Path(old_dir)
-    try:
-        if not (old / "CanvasHelper.exe").is_file():
-            return False
-        if old.parent == old:  # 盘符根
-            return False
-        if old.resolve() == Path.home().resolve():
-            return False
-        top = {p.name.lower() for p in old.iterdir() if not p.name.startswith(".")}
-    except OSError:
-        return False
-    if not top <= _ALLOWED_TOP:
+    if why_not_replace(old_dir):
         return False
     return new_dir is None or find_exe(Path(new_dir)) is not None
 

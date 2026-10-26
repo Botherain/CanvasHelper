@@ -81,12 +81,63 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "exe 自检失败，退出码 $($p.ExitCode)" }
           Write-Host "exe 自检通过：全部子模块可导入"
 
-      - name: 打 zip
+      - name: 打 zip（附赠一份包内说明）
+        # 用 Python 压包而不是 Compress-Archive：这里字符串里既有中文又有反斜杠，
+        # PowerShell 的 here-string 在 YAML 缩进下极易踩坑；Python 还能明确控制
+        # 编码（UTF-8 BOM，记事本可读）与条目顺序。
+        # README.txt 放在 zip 根、与 CanvasHelper\ 平级：绝不能放进 exe 同级目录，
+        # 否则会破坏「一键更新」的安全阀（要求安装目录顶层只有 exe 与 _internal）。
+        shell: python
         run: |
-          Compress-Archive -Path dist\CanvasHelper -DestinationPath dist\CanvasHelper-${{ github.ref_name }}-win64.zip -Force
-          Get-ChildItem dist | Select-Object Name, Length
+          import os, pathlib, zipfile
 
-      - name: 生成 Release 说明（从 CHANGELOG 取本节）
+          notes = """CanvasHelper（免安装便携版）
+
+          1. 双击 CanvasHelper\\CanvasHelper.exe 启动。
+             首次运行若提示「Windows 已保护你的电脑」，点「更多信息」->「仍要运行」。
+
+          2. 解压到可写目录（如 D:\\Apps\\），不要放 C:\\Program Files：
+             程序以后要「一键更新」，需要能覆盖自己所在的目录。
+
+          3. 如果 zip 的属性里有「解除锁定」，先勾选并应用，再解压——
+             否则 Windows 可能拦住内置的 node.exe。
+
+          4. 配置、登录态、日志都在 %LOCALAPPDATA%\\CanvasHelper：
+             删掉本目录不会丢数据，但别把整个文件夹发给别人（里面有 Cookie）。
+
+          5. 挪动了本文件夹也没关系：下次启动会自动修正计划任务。
+             随时可在「设置」页点「创建桌面快捷方式」。
+
+          6. 有新版本时顶栏会出现提示，点开按「立即下载并更新」即可。
+             1.2.x 及更早的版本需要手动下载 zip 覆盖一次。
+
+          项目主页：https://github.com/Botherain/CanvasHelper
+          """
+          pathlib.Path("dist/README.txt").write_text(notes, encoding="utf-8-sig")
+
+          zip_path = f"dist/CanvasHelper-{os.environ['GITHUB_REF_NAME']}-win64.zip"
+          root = pathlib.Path("dist/CanvasHelper")
+          with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+              zf.write("dist/README.txt", "README.txt")
+              for path in sorted(root.rglob("*")):
+                  if path.is_file():
+                      zf.write(path, path.relative_to("dist").as_posix())
+          print(zip_path, pathlib.Path(zip_path).stat().st_size)
+
+      - name: 校验 zip 内容
+        # 少一个都是用户那边的「解压后不知道点哪个 / 双击闪退」
+        shell: python
+        run: |
+          import os, zipfile
+          zip_path = f"dist/CanvasHelper-{os.environ['GITHUB_REF_NAME']}-win64.zip"
+          with zipfile.ZipFile(zip_path) as zf:
+              names = set(zf.namelist())
+          missing = {"README.txt", "CanvasHelper/CanvasHelper.exe"} - names
+          if missing:
+              raise SystemExit(f"zip 缺少：{sorted(missing)}")
+          print(f"zip 内容校验通过：README.txt + CanvasHelper/，共 {len(names)} 个条目")
+
+      - name: 生成 Release 说明（CHANGELOG 小节 + 下载指引）
         shell: python
         run: |
           import pathlib, re
@@ -96,8 +147,22 @@ jobs:
           m = re.search(rf"^## \[{re.escape(ver)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
                         log, re.MULTILINE | re.DOTALL)
           body = (m.group(1).strip() if m else "见 CHANGELOG.md")
-          pathlib.Path("release-notes.md").write_text(body + "\n", encoding="utf-8")
-          print(body[:400])
+          # 每次发版都带上「下载哪个文件 / 第一次怎么跑」，用户不必回 README 找
+          guide = f"""---
+          ### 下载哪个文件？
+
+          | 文件 | 给谁 | 怎么用 |
+          | --- | --- | --- |
+          | `CanvasHelper-v{ver}-win64.zip` | **绝大多数人** | 解压 → 双击 `CanvasHelper\\CanvasHelper.exe`。免安装、无需 Python |
+          | `canvas_helper-{ver}-py3-none-any.whl` | 会用 pip 的人 | `pip install <whl>`，然后运行 `canvas-helper` |
+          | `Source code` | 想看/改代码的人 | `pip install .`，见 README「从源码运行」 |
+
+          首次运行：被 SmartScreen 拦住时点「更多信息 → 仍要运行」；zip 属性里若有「解除锁定」，先勾掉再解压。
+          从 1.2.x 升上来需要手动覆盖一次，之后就能应用内一键更新。
+          """
+          pathlib.Path("release-notes.md").write_text(
+              body + "\n\n" + guide.strip() + "\n", encoding="utf-8")
+          print(body[:200])
 
       - name: 发布到 GitHub Releases
         if: startsWith(github.ref, 'refs/tags/v')

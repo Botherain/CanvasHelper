@@ -102,3 +102,7 @@ def test_15_院校清单在线更新与缓存() -> None:
 
 def test_16_版本校验与更新公告() -> None:
     _run("[16] 版本校验与更新公告", smoke.s16_update)
+
+
+def test_17_免安装分发() -> None:
+    _run("[17] 免安装分发（快捷方式 / 计划任务）", smoke.s17_install_ux)

@@ -871,7 +871,7 @@ def s9_packaging() -> None:
                               p.read_text(encoding="utf-8"))]
     check("没有用到 3.11 才有的 datetime.UTC", not offenders, str(offenders))
     # 静默回归：状态栏若排在标签页之后 pack，会被 notebook 的请求高度（设置页
-    # 31 行撑出的 760px）挤到 3px——进度条与状态文字直接看不见，但不报任何错。
+    # 32 行撑出的 760px）挤到 3px——进度条与状态文字直接看不见，但不报任何错。
     gui_src = (ROOT / "canvas_helper" / "gui.py").read_text(encoding="utf-8")
     check("状态栏先于标签页 pack（否则进度条被挤掉）",
           gui_src.find("bottom.pack(") < gui_src.find("self.nb.pack("))
@@ -881,6 +881,35 @@ def s9_packaging() -> None:
     check("更新公告窗不用嵌套事件循环（否则下载进度停摆）",
           len(update_section) == 2
           and "win.wait_window()" not in update_section[1].split("def _on_update_ready")[0])
+
+    # ---- 免安装分发：装完就能双击运行，不靠任何 .bat / .ps1 安装脚本 ----
+    bats = [p.name for p in ROOT.rglob("*.bat")]
+    check("仓库里没有 .bat 启动脚本", not bats, str(bats))
+    check("仓库里没有 make_shortcut.ps1（快捷方式改由界面按钮创建）",
+          not (ROOT / "scripts" / "make_shortcut.ps1").exists())
+    pyw = ROOT / "CanvasHelper.pyw"
+    check("源码双击入口 CanvasHelper.pyw 存在", pyw.is_file())
+    if pyw.is_file():
+        pyw_src = pyw.read_text(encoding="utf-8")
+        try:
+            compile(pyw_src, str(pyw), "exec")
+            ok_pyw = True
+        except SyntaxError:
+            ok_pyw = False
+        check("CanvasHelper.pyw 语法正确", ok_pyw)
+        check("CanvasHelper.pyw 启动失败时会弹消息框",
+              "messagebox.showerror" in pyw_src)
+    gui_scripts = pt.split("[project.gui-scripts]", 1)
+    check("GUI 入口是无控制台的 gui-scripts",
+          len(gui_scripts) == 2 and "canvas-helper-gui" in gui_scripts[1].split("\n[", 1)[0])
+    check("打包 spec 带 exe 版本资源（文件属性里能看到版本号）",
+          "version=VERSION_INFO" in spec_txt and "VSVersionInfo(" in spec_txt)
+    release_yml = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    check("zip 里带 README.txt 并校验包内容",
+          "dist/README.txt" in release_yml
+          and 'CanvasHelper/CanvasHelper.exe"} - names' in release_yml)
+    check("Release 正文自动追加「下载哪个文件」指引",
+          "下载哪个文件" in release_yml and "CanvasHelper-v{ver}-win64.zip" in release_yml)
 
 
 def s10_extract() -> None:
@@ -1617,6 +1646,108 @@ def s16_update() -> None:
           "_announce_upgrade_once" in gui_src and "should_announce_upgrade" in gui_src)
 
 
+def s17_install_ux() -> None:
+    """[17] 免安装分发：快捷方式、替换原因、计划任务命令。"""
+    from canvas_helper import paths as _paths
+    from canvas_helper import scheduler, shortcut, updater
+
+    print("\n[17] 免安装分发（快捷方式 / 一键更新前置条件 / 计划任务）")
+
+    tmp = Path(tempfile.mkdtemp(prefix="ch_lnk_"))
+    try:
+        root = tmp / "app"
+        (root / "docs" / "icons").mkdir(parents=True)
+        (root / "docs" / "icons" / "canvashelper.ico").write_bytes(b"\x00")
+        (root / "CanvasHelper.pyw").write_text("print(1)", encoding="utf-8")
+
+        src_t = shortcut.target_for(project_dir=root, frozen=False)
+        check("源码版快捷方式指向 python 解释器",
+              Path(src_t.path).name.lower() in ("pythonw.exe", "python.exe"), src_t.path)
+        check("源码版参数是 CanvasHelper.pyw",
+              src_t.args.strip('"').endswith("CanvasHelper.pyw"), src_t.args)
+        check("源码版带应用图标", src_t.icon.endswith("canvashelper.ico,0"), src_t.icon)
+        check("源码版工作目录是项目根",
+              Path(src_t.workdir) == root.resolve(), src_t.workdir)
+
+        (root / "CanvasHelper.pyw").unlink()
+        (root / "docs" / "icons" / "canvashelper.ico").unlink()
+        fallback = shortcut.target_for(project_dir=root, frozen=False)
+        check("没有 .pyw 时退回 -m canvas_helper gui",
+              "-m canvas_helper gui" in fallback.args, fallback.args)
+        check("没有图标文件时不设图标", fallback.icon == "", fallback.icon)
+
+        exe = tmp / "bin" / "CanvasHelper.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"MZ")
+        frozen_t = shortcut.target_for(exe=exe, frozen=True)
+        check("打包版快捷方式直接指向 exe",
+              Path(frozen_t.path) == exe.resolve(), frozen_t.path)
+        check("打包版无参数、图标取 exe 自带资源",
+              frozen_t.args == "" and frozen_t.icon.endswith("CanvasHelper.exe,0"),
+              f"{frozen_t.args!r} / {frozen_t.icon!r}")
+
+        script = shortcut.build_ps1(src_t)
+        check("快捷方式脚本用 WScript.Shell", "WScript.Shell" in script)
+        check("快捷方式脚本取真实桌面目录（兼容 OneDrive 重定向）",
+              "GetFolderPath('Desktop')" in script)
+        check("快捷方式脚本里的路径带引号", f"'{root.resolve()}'" in script, script[:160])
+        check("快捷方式脚本会落盘 .lnk",
+              "$lnk.Save()" in script and "CanvasHelper.lnk" in script)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    tmp2 = Path(tempfile.mkdtemp(prefix="ch_why_"))
+    try:
+        app = tmp2 / "CanvasHelper"
+        (app / "_internal").mkdir(parents=True)
+        (app / "CanvasHelper.exe").write_bytes(b"MZ")
+        check("标准安装目录可以自动替换", updater.why_not_replace(app) == "",
+              updater.why_not_replace(app))
+        check("目录里没有 exe 时说明原因",
+              "没有 CanvasHelper.exe" in updater.why_not_replace(tmp2),
+              updater.why_not_replace(tmp2))
+        (app / "我的笔记.txt").write_text("x", encoding="utf-8")
+        why = updater.why_not_replace(app)
+        check("多出用户文件时点名说明（防止删除资料）", "我的笔记.txt" in why, why)
+        (app / "我的笔记.txt").unlink()
+        check("safe_to_replace 与原因判断一致",
+              updater.safe_to_replace(app) is (updater.why_not_replace(app) == ""))
+    finally:
+        shutil.rmtree(tmp2, ignore_errors=True)
+
+    # 计划任务命令：打包版不该再引用不在包里的 headless_entry.py
+    had_frozen = hasattr(sys, "frozen")
+    old_frozen = getattr(sys, "frozen", None)
+    try:
+        sys.frozen = True  # type: ignore[attr-defined]
+        packed_cmd = scheduler._cmd("sync --headless")
+        check("打包版计划任务直接用 exe 自己",
+              packed_cmd == f'"{sys.executable}" sync --headless', packed_cmd)
+        check("打包版命令不再引用 headless_entry.py",
+              "headless_entry.py" not in packed_cmd, packed_cmd)
+    finally:
+        if had_frozen:
+            sys.frozen = old_frozen  # type: ignore[attr-defined]
+        else:
+            del sys.frozen  # type: ignore[attr-defined]
+    source_cmd = scheduler._cmd("sync --headless")
+    check("源码版计划任务仍是 pythonw + 入口脚本",
+          "headless_entry.py" in source_cmd and "sync --headless" in source_cmd,
+          source_cmd)
+
+    orig_load = _paths.load_state
+    try:
+        _paths.load_state = lambda: {"schedule_cmd": scheduler._commands()}  # type: ignore[assignment]
+        check("命令没变就不重建计划任务", not scheduler.moved())
+        _paths.load_state = lambda: {  # type: ignore[assignment]
+            "schedule_cmd": {"sync": "old-python.exe x", "report": "old"}}
+        check("程序换了位置就要重建计划任务", scheduler.moved())
+        _paths.load_state = dict  # type: ignore[assignment]
+        check("没有记录过命令时也会重建（升级后首次）", scheduler.moved())
+    finally:
+        _paths.load_state = orig_load  # type: ignore[assignment]
+
+
 # --------------------------------------------------------------------------- #
 # 脚本入口
 # --------------------------------------------------------------------------- #
@@ -1647,6 +1778,7 @@ def main() -> int:
     s14_schools()
     s15_schoollist()
     s16_update()
+    s17_install_ux()
 
     if fixture_root is not None:
         shutil.rmtree(fixture_root, ignore_errors=True)

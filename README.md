@@ -15,7 +15,7 @@
 ## 目录
 
 - [项目介绍](#项目介绍) — 它解决什么问题、功能一览、跨院校通用、安全与隐私
-- [快速开始](#快速开始) — 从零到可用的五步
+- [快速开始](#快速开始) — 下载即用（免安装）/ 从源码运行
 - [详细使用教程](#详细使用教程) — 界面导览、归档规则、接口降级、清理缓存、检查更新、命令行、设置项、开发者参考
 - [相关项目：DeskBox](#相关项目deskbox) — DeskBox 是什么、两者的关系、待办写入策略、待办排序与课程颜色
 - [常见问题与解答](#常见问题与解答) — 学校不在清单、时区偏差、登录过期、重复待办、磁盘占用等
@@ -101,52 +101,56 @@ Canvas 在全球有数千所院校在用，站点地址五花八门（`canvas.<�
 
 ## 快速开始
 
-### 前置条件
+### 方式一：下载即用（推荐，不需要 Python）
 
-Windows 10 / 11、Python 3.9 以上。浏览器优先用系统自带的 Edge——Playwright 直接驱动它，**不用另下浏览器**；万一这台机器没有 Edge，设置页有「安装 Chromium」按钮（命令行等价：`python -m canvas_helper install-browser`），下载一次约 150 MB。
+1. 打开 [Releases](https://github.com/Botherain/CanvasHelper/releases/latest)，下载 `CanvasHelper-vX-win64.zip`（适用于 Windows 10 / 11 x64）；
+2. （只有当 zip 的属性页里有「解除锁定」时才需要）右键 zip → **属性** → 勾选「解除锁定」→ 应用。这一步能避免 Windows 拦住包内的 `node.exe`；
+3. 解压到一个**可写目录**，例如 `D:\Apps\`——**不要放 `C:\Program Files`**：以后「一键更新」需要覆盖自己所在的文件夹；
+4. 双击 `CanvasHelper\CanvasHelper.exe`。首次运行若提示「Windows 已保护你的电脑」，点「更多信息」→「仍要运行」（未签名程序的正常现象，见下方 [常见问题](#常见问题与解答)）；
+5. 选学校 → 登录 → 勾课程 → **开始同步**。不需要手写任何配置。
 
-### 第一步：取得项目文件
+这就是全部安装步骤——**没有 .bat 脚本、没有安装向导、不需要管理员权限**。要桌面图标：右键 `CanvasHelper.exe` → **发送到 → 桌面快捷方式**，或在程序里点 **设置 → 创建桌面快捷方式**。
+
+有新版本时顶栏会出现提示，点开按「立即下载并更新」即可（1.2.x 及更早的版本需要按 1.3.0 说明里的「升级说明」手动覆盖一次）。
+
+### 方式二：从源码运行（进阶，需要 Python 3.9+）
 
 ```powershell
 git clone https://github.com/Botherain/CanvasHelper.git
 cd CanvasHelper
+py -3 -m pip install .        # 没有 py 启动器就写 python -m pip install .
 ```
 
-没有 git 也行：仓库页面 -> **Code -> Download ZIP**，解压后进入该目录。
+运行时依赖只有 `playwright` 与 `tzdata`，pip 会一并装好。要跑自检 / 静态检查再补 `py -3 -m pip install ".[dev]"`（pytest / ruff / mypy / Pillow）。
 
-### 第二步：安装依赖
+装好之后有三种启动方式，都不需要任何脚本：
 
 ```powershell
-py -3 -m pip install -e .        # 没有 py 启动器就写 python -m pip install -e .
+canvas-helper          # 命令行入口（会带一个控制台窗口，方便看报错）
+canvas-helper-gui      # 无控制台启动器（gui-scripts 生成的 exe，可当普通程序双击）
 ```
 
-运行时依赖只有 `playwright` 与 `tzdata`，pip 会一并装好。要跑自检 / 静态检查再补一句 `py -3 -m pip install -e ".[dev]"`（pytest / ruff / mypy / Pillow）。
-
-### 第三步：首次启动（选学校 + 登录）
-
-```powershell
-canvas-helper              # 安装后的命令行入口
-# 或（在源码目录里）
-python -m canvas_helper
-# 或
-.\启动Canvas助手.bat
-```
+或者直接**双击仓库根目录的 `CanvasHelper.pyw`**——无控制台、双击即开；缺依赖时会弹框告诉你先 `pip install .`，不会静默失败。
 
 **不需要手写任何配置**。首次启动会先弹出「选择你的学校」窗口，从清单里挑一所（或直接手填地址），随后弹出 Edge 完成学校 SSO / 2FA。之后长期免登录，掉线时会自动重新弹窗。
 
 课程列表出现后会自动匹配本地文件夹并预勾选；这时建议**先点「预览归档方案」**（只读、不写盘）确认落点，再点「开始同步」。
 
-### 第四步：桌面快捷方式（带图标、全程无控制台）
+> 浏览器优先用系统自带的 Edge——Playwright 直接驱动它，**不用另下浏览器**；万一这台机器没有 Edge，设置页有「安装 Chromium」按钮（命令行等价：`python -m canvas_helper install-browser`），下载一次约 150 MB。
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make_shortcut.ps1
-```
+### 桌面快捷方式
 
-生成的快捷方式显示名 `CanvasHelper`、挂上应用图标，直接以 `pythonw` 启动 GUI。`.bat` 本身无法承载图标，且双击时 Windows 必先给它一个控制台（约 0.2 秒黑框），所以快捷方式不走 `.bat`。
+三种都行，按顺手的来：
+
+- **右键** `CanvasHelper.exe`（或 `CanvasHelper.pyw`）→ **发送到 → 桌面快捷方式**（Windows 自带）；
+- 程序里 **设置 → 创建桌面快捷方式**：exe 版指向程序本身、带应用图标；源码版指向 `pythonw`，全程无黑框；
+- 手动新建也行：目标填程序路径即可。
 
 ### 让它每天自动跑
 
 **设置** 页勾选「启用每日自动同步」并点「保存设置」，之后每天后台同步一次（无窗口，用已保存的登录态）。计划任务在当前用户下运行，注销后不执行。
+
+**程序目录被移动过也没关系**：注册任务时会把命令记在 `state.json`，下次启动发现对不上就按当前位置自动重建；也能在设置页重新「保存设置」手动重建。
 
 ### 数据目录
 
@@ -366,26 +370,28 @@ CanvasHelper\
 │  ├─ deskbox.py       待办合并 / 副本预写 / 关-换-启
 │  ├─ extras.py        通知、成绩、.ics、每周摘要
 │  ├─ cleaner.py       一键清理缓存（扫描 / 执行）
-│  ├─ scheduler.py     Windows 计划任务
+│  ├─ scheduler.py     Windows 计划任务（含「程序被移动后自动重建」）
+│  ├─ updater.py       版本校验 / 更新公告 / 下载与一键替换
+│  ├─ shortcut.py      创建桌面快捷方式（PowerShell + WScript.Shell，零依赖）
 │  ├─ runner.py        流程编排（含登录过期的弹窗自愈）
 │  ├─ gui.py           tkinter 界面
-│  └─ __main__.py      命令行入口（无参数开 GUI / sync / report / clean / preview / schools）
+│  └─ __main__.py      命令行入口（无参数开 GUI / sync / report / clean / preview / schools / update）
 ├─ tests\
 │  ├─ __init__.py          让用例以 tests.xxx 形式被发现（少了它 mypy 的 tests.* 规则不生效）
-│  ├─ smoke.py             离线自检的实现（15 个小节）
+│  ├─ smoke.py             离线自检的实现（17 个小节）
 │  ├─ conftest.py          pytest 夹具（副作用隔离、课程目录、待办草稿上下文）
-│  ├─ test_smoke.py        把自检按小节交给 pytest 执行（16 个用例）
+│  ├─ test_smoke.py        把自检按小节交给 pytest 执行（22 个用例）
 │  └─ test_canvas_api.py   文件发现退化路径的离线回归（7 个用例，不联网）
 ├─ scripts\
 │  ├─ pyinstaller_entry.py  打包入口（__main__.py 是相对导入，不能当独立脚本分析）
 │  ├─ headless_entry.py     计划任务入口（__file__ 定位源码，配 pythonw 免黑框）
 │  ├─ make_icon.py          源图 -> 裁边框 -> 去外圈留圆角（四角透明）-> 多尺寸 ico（--verify 体检）
-│  ├─ make_shortcut.ps1     生成桌面快捷方式（直启 pythonw 免控制台，挂 ico；.lnk 不入库）
 │  └─ capture_gui.ps1       截 README 用的窗口截图（源码版 / 打包版，兼容 pythonw）
 ├─ docs\
-│  ├─ icons\canvashelper.ico    应用图标（圆角、四角透明；16~128 BMP + 256 PNG 七档）
+│  ├─ icons\canvashelper.ico    应用图标（同时烧进 exe 资源与快捷方式）
 │  ├─ icons\canvashelper.png    图标预览（README 顶部展示）
-│  └─ RELEASING.md              发布流程 / 打包双轨 / 代码签名方案
+│  ├─ RELEASING.md              发布流程 / 打包双轨 / 代码签名方案
+│  └─ SIGNING.md                代码签名申请（SignPath / Certum）与 CI 接法
 ├─ .github\
 │  ├─ workflows\ci.yml      lint（ruff + mypy）+ 离线自检 x Python 3.9~3.14
 │  ├─ workflows\release.yml 推 tag 自动打包（wheel / sdist / exe）+ 发 Release
@@ -396,7 +402,7 @@ CanvasHelper\
 ├─ CHANGELOG.md           变更记录
 ├─ config.example.json    配置模板（可写数据不在这里，见「数据目录」）
 ├─ LICENSE
-└─ 启动Canvas助手.bat      用 %~dp0，位置随意；start + pythonw，启动不留黑框
+└─ CanvasHelper.pyw       双击启动 GUI（源码方式；pythonw 无控制台，缺依赖会弹框）
 ```
 
 **自检与静态检查**
@@ -525,6 +531,14 @@ A：先看 `sync.log` 有没有 `403 无权限，跳过该接口` 或 `跳过隐
 **Q：换学校 / 换机器要做什么？**
 
 A：换学校：点「选择院校」重新选一所，登录一次即可；已下载的旧课程文件不会被删（只增不删）。换机器：装好依赖后重新选学校 + 登录；`%LOCALAPPDATA%\CanvasHelper\` 不随仓库走，可以整目录拷过去复用配置与登录态，但**登录态等于凭据，不要发给别人**。
+
+**Q：双击 exe 提示「Windows 已保护你的电脑 / 未知发布者」？**
+
+A：因为发布包目前**没有代码签名证书**（个人开源项目买证书约 €50–300/年，免费的 SignPath Foundation 正在申请中）。这是 SmartScreen 对「未签名 / 下载量还不多」程序的默认拦截，不是病毒：点 **「更多信息」→「仍要运行」** 即可，之后会逐步建立信誉、提示变少。想核对完整性可以看 Release 页上的 SHA-256：`Get-FileHash .\CanvasHelper-win64.zip -Algorithm SHA256`。
+
+**Q：一键更新提示「安装目录不可写」或「目录里有额外文件」？**
+
+A：前者常见于把程序解压进了 `C:\Program Files`（需要管理员才能覆盖）——把整个 `CanvasHelper` 文件夹挪到 `D:\Apps` 之类的位置即可，配置与登录态在 `%LOCALAPPDATA%`，挪动不丢数据。后者是因为你自己往安装目录里放了文件，而一键更新用的是**镜像覆盖**（会删掉多余文件），所以程序宁可退回「打开下载页」让你手动覆盖。两种情况都会在公告窗里直接写明原因。
 
 **Q：会连第三方服务器吗？会不会上传我的数据？**
 

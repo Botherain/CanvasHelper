@@ -9,6 +9,7 @@
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
+import re
 import sys
 from pathlib import Path
 
@@ -20,6 +21,46 @@ from pathlib import Path
 HERE = Path(SPECPATH).resolve()  # noqa: F821 - SPECPATH 由 PyInstaller 注入
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))  # 让下面的 collect_submodules 能导入它
+
+
+# 版本资源：让 exe 的「属性 → 详细信息」里有产品名与版本号，而不是一片空白。
+# 直接从 __init__.py 读，避免第二份要同步的版本号；文件生成在 build/（已 gitignore）。
+def _version_info() -> str:
+    src = (HERE / 'canvas_helper' / '__init__.py').read_text(encoding='utf-8')
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', src)
+    version = match.group(1) if match else '0.0.0'
+    numbers = [int(x) for x in re.findall(r'\d+', version.split('-')[0])[:4]]
+    numbers += [0] * (4 - len(numbers))
+    triple = (numbers[0], numbers[1], numbers[2])
+    target = HERE / 'build' / 'version_info.txt'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(f"""# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={tuple(numbers)},
+    prodvers={tuple(numbers)},
+    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([StringTable('080404b0', [
+      StringStruct('CompanyName', 'CanvasHelper'),
+      StringStruct('FileDescription', 'CanvasHelper - Canvas 课程同步助手'),
+      StringStruct('FileVersion', '{version}'),
+      StringStruct('InternalName', 'CanvasHelper'),
+      StringStruct('OriginalFilename', 'CanvasHelper.exe'),
+      StringStruct('ProductName', 'CanvasHelper'),
+      StringStruct('ProductVersion', '{version}'),
+      StringStruct('LegalCopyright', 'MIT License'),
+    ])]),
+    VarFileInfo([VarStruct('Translation', [2052, 1200])]),
+  ]
+)
+""", encoding='utf-8')
+    print(f'[spec] version resource: {version} ({triple})')
+    return str(target)
+
+
+VERSION_INFO = _version_info()
 
 pathex = [str(HERE)]
 
@@ -76,6 +117,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['docs/icons/canvashelper.ico'],
+    version=VERSION_INFO,
 )
 coll = COLLECT(
     exe,
