@@ -42,9 +42,13 @@ from canvas_helper.deskbox import (  # noqa: E402
     TodoDraft,
     build_drafts,
     dedupe_completed,
+    ensure_course_colors,
     load_doc,
     merge,
+    prepare,
     preview_status,
+    recolor_items,
+    reorder_by_due,
 )
 from canvas_helper.paths import DEFAULT_CONFIG, load_config, to_local  # noqa: E402
 
@@ -433,6 +437,131 @@ def s5c_cleaner() -> None:
     check("空勾选不产生任何清理", empty["cleaned"] == [] and empty["bytes"] == 0, str(empty))
 
 
+def s5d_sort_and_color() -> None:
+    print("\n[5d] 待办排序与课程颜色")
+
+    cfg = {"deskbox": {"course_colors": {}, "course_labels": {}, "manual_color": "pink"}}
+    courses = [
+        Course(id=30, name="C", code="CS6382"),
+        Course(id=10, name="A", code="CS5187"),
+        Course(id=20, name="B", code="CS5486"),
+    ]
+    colors = ensure_course_colors(cfg, courses, persist=False)
+    check("首次按识别顺序分配颜色",
+          colors == {"30": "red", "10": "orange", "20": "yellow"}, str(colors))
+    check("课程不使用自建待办颜色", "pink" not in colors.values(), str(colors))
+    check("保存课程显示名",
+          cfg["deskbox"]["course_labels"]["10"].startswith("CS5187"),
+          cfg["deskbox"]["course_labels"].get("10", ""))
+
+    # 用户改过颜色后，新增课程只补空位，不覆盖自定义值
+    cfg["deskbox"]["course_colors"]["10"] = "teal"
+    colors = ensure_course_colors(
+        cfg, [*courses, Course(id=40, name="D", code="CS5494")], persist=False)
+    check("已有自定义颜色不被覆盖", colors["10"] == "teal", str(colors))
+    check("新课程拿到未占用的颜色",
+          colors["40"] not in {colors["30"], colors["10"], colors["20"], "pink"},
+          str(colors))
+
+    item = Item(
+        course_id=10, module_name="Assignment", title="A1", kind="Assignment",
+        html_url="https://canvas.example.edu/courses/10/assignments/1",
+        due_at="2026-11-20T15:59:00Z", extra={},
+    )
+    drafts = build_drafts({10: courses[1]}, {10: [item]}, cfg=cfg)
+    check("草稿使用课程颜色", drafts.drafts[0].color == "teal", drafts.drafts[0].color)
+
+    doc = {"items": [
+        {"id": "a", "text": "A", "dueDate": "2026-11-03T23:59:00+08:00", "sortOrder": 0},
+        {"id": "b", "text": "B", "dueDate": "2026-11-01T23:59:00+08:00", "sortOrder": 1},
+        {"id": "c", "text": "C", "dueDate": None, "sortOrder": 2},
+        {"id": "d", "text": "D", "dueDate": "2026-11-01T23:59:00+08:00", "sortOrder": 3},
+    ]}
+    moved = reorder_by_due(doc)
+    check("按截止时间升序",
+          [i["id"] for i in doc["items"]] == ["b", "d", "a", "c"],
+          str([i["id"] for i in doc["items"]]))
+    check("无截止时间排最后", doc["items"][-1]["id"] == "c", str(doc["items"][-1]))
+    check("同截止时间保持原顺序",
+          [i["id"] for i in doc["items"][:2]] == ["b", "d"],
+          str([i["id"] for i in doc["items"][:2]]))
+    check("sortOrder 连续",
+          [i["sortOrder"] for i in doc["items"]] == [0, 1, 2, 3],
+          str([i["sortOrder"] for i in doc["items"]]))
+    check("记录位置变化数", moved == 4, str(moved))
+    check("重复排序幂等", reorder_by_due(doc) == 0, str(reorder_by_due(doc)))
+
+    db = cfg["deskbox"]
+    colored = {"items": [
+        {"id": "1", "text": "CS5187 · A",
+         "notes": "打开：https://canvas.example.edu/courses/10/assignments/1",
+         "colorMarker": "yellow"},
+        {"id": "2", "text": "CS5486-Assignment", "notes": None, "colorMarker": "red"},
+        {"id": "3", "text": "整理每周课程文件", "notes": None, "colorMarker": None},
+        {"id": "4", "text": "CS9999 · X", "notes": None, "colorMarker": "blue"},
+    ]}
+    changed = recolor_items(colored, db)
+    check("按 Canvas 链接上课程色", colored["items"][0]["colorMarker"] == "teal",
+          str(colored["items"][0]))
+    check("旧条目按课程代码兜底", colored["items"][1]["colorMarker"] == "yellow",
+          str(colored["items"][1]))
+    check("自建待办使用额外颜色", colored["items"][2]["colorMarker"] == "pink",
+          str(colored["items"][2]))
+    check("未知课程条目不误改", colored["items"][3]["colorMarker"] == "blue",
+          str(colored["items"][3]))
+    check("颜色改动数", changed == 3, str(changed))
+
+    # 课程代码里带空格（MATH 101）、以及「更像代码」的条目不互相误吞
+    spaced = {"items": [
+        {"id": "5", "text": "MATH 101 - Problem Set 3", "notes": None, "colorMarker": "red"},
+        {"id": "6", "text": "MATH1015 Lab", "notes": None, "colorMarker": "blue"},
+    ]}
+    db2 = {
+        "course_colors": {"900": "green"},
+        "course_labels": {"900": "MATH 101 - Calculus"},
+        "manual_color": "pink",
+    }
+    n2 = recolor_items(spaced, db2)
+    check("带空格的课程代码也认", spaced["items"][0]["colorMarker"] == "green",
+          str(spaced["items"][0]))
+    check("代码前缀更长时不误吞", spaced["items"][1]["colorMarker"] == "blue",
+          str(spaced["items"][1]))
+    check("带空格课程的改动数", n2 == 1, str(n2))
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="ch_sort_"))
+    try:
+        todo = tmpdir / "todo.json"
+        todo.write_text(json.dumps({"version": 3, "items": [
+            {"id": "x1", "text": "CS5187 · A", "isCompleted": False,
+             "dueDate": "2026-11-03T23:59:00+08:00", "colorMarker": "yellow",
+             "notes": "打开：https://canvas.example.edu/courses/10/assignments/1",
+             "sortOrder": 0},
+            {"id": "x2", "text": "整理文件", "isCompleted": False,
+             "dueDate": "2026-11-01T23:59:00+08:00", "colorMarker": None,
+             "notes": None, "sortOrder": 1},
+        ]}, ensure_ascii=False), encoding="utf-8")
+        prep_cfg = {
+            "todo_path": str(todo), "sort_by_due": True,
+            "remove_duplicates": True, "fix_attachment_paths": True,
+            "reminder_offset_minutes": 1440,
+            "course_colors": {"10": "teal"},
+            "course_labels": {"10": "CS5187 - Vision and Image"},
+            "manual_color": "pink",
+        }
+        _tmp, added, st = prepare(todo, [], prep_cfg)
+        check("无新增时排序/改色也标记 changed",
+              not added and st.get("changed")
+              and st.get("resorted", 0) > 0 and st.get("recolored", 0) == 2,
+              str(st))
+        # 把整理结果当成磁盘现状再跑一遍：不应该再产生任何改动（否则每次同步都会
+        # 无谓地关一次 DeskBox）
+        shutil.copy2(_tmp, todo)
+        _tmp2, _added2, st2 = prepare(todo, [], prep_cfg)
+        check("整理过的待办重复写入不产生改动", st2.get("changed") is False, str(st2))
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 def s6_plan() -> None:
     from canvas_helper.filesync import build_plan, describe
 
@@ -742,10 +871,16 @@ def s9_packaging() -> None:
                               p.read_text(encoding="utf-8"))]
     check("没有用到 3.11 才有的 datetime.UTC", not offenders, str(offenders))
     # 静默回归：状态栏若排在标签页之后 pack，会被 notebook 的请求高度（设置页
-    # 24 行撑出的 760px）挤到 3px——进度条与状态文字直接看不见，但不报任何错。
+    # 31 行撑出的 760px）挤到 3px——进度条与状态文字直接看不见，但不报任何错。
     gui_src = (ROOT / "canvas_helper" / "gui.py").read_text(encoding="utf-8")
     check("状态栏先于标签页 pack（否则进度条被挤掉）",
           gui_src.find("bottom.pack(") < gui_src.find("self.nb.pack("))
+    # 更新公告窗是从 _pump 里弹的：若在里面 wait_window() 开嵌套事件循环，
+    # 队列里的下载进度消息要等窗口关掉才处理，进度条会一直停在「正在下载…」。
+    update_section = gui_src.split("def do_show_update", 1)
+    check("更新公告窗不用嵌套事件循环（否则下载进度停摆）",
+          len(update_section) == 2
+          and "win.wait_window()" not in update_section[1].split("def _on_update_ready")[0])
 
 
 def s10_extract() -> None:
@@ -1256,6 +1391,196 @@ def s15_schoollist() -> None:
           str(schoollist.search_schools("zzz-不存在-xyzzy")))
 
 
+def s16_update() -> None:
+    """[16] 版本校验、更新公告与一键替换（全部离线，fetcher 注入）。"""
+    import zipfile
+    from datetime import timedelta
+
+    from canvas_helper import __version__ as ver
+    from canvas_helper import updater
+    from canvas_helper.__main__ import _SUBMODULES
+    from canvas_helper.paths import now_local
+
+    print("\n[16] 版本校验与更新公告")
+
+    # --- 版本号比较：宁可漏报，也不能把脏 tag 当成更新 ---
+    check("v 前缀与段数补齐",
+          updater.parse_version("v1.4") == updater.parse_version("1.4.0"),
+          f"{updater.parse_version('v1.4')} / {updater.parse_version('1.4.0')}")
+    check("跨十位版本正确比较", updater.is_newer("1.10.0", "1.9.9"))
+    check("同级小版本递增", updater.is_newer("1.4.1", "1.4.0"))
+    check("相同版本不算更新", not updater.is_newer("v1.3.0", "1.3.0"))
+    check("预发布低于同号正式版", not updater.is_newer("1.4.0-rc1", "1.4.0"))
+    check("预发布高于旧正式版", updater.is_newer("1.4.0-rc1", "1.3.0"))
+    check("构建元数据不算预发布",
+          not updater.is_newer("1.3.0+build5", "1.3.0")
+          and updater.is_newer("1.3.0+build5", "1.2.9"), "1.3.0+build5")
+    check("看不懂的版本号不误报",
+          updater.parse_version("abc") is None
+          and not updater.is_newer("latest", "1.3.0"))
+
+    tmp = Path(tempfile.mkdtemp(prefix="ch_update_"))
+    old_cache, old_updates = updater.UPDATE_CACHE_PATH, updater.UPDATES_DIR
+    updater.UPDATE_CACHE_PATH = tmp / "update_cache.json"
+    updater.UPDATES_DIR = tmp / "updates"
+    try:
+        wheel = updater.Asset("canvas_helper-1.4.0-py3-none-any.whl",
+                              "https://example.invalid/a.whl", 1000)
+        z64 = updater.Asset("CanvasHelper-v1.4.0-win64.zip",
+                            "https://example.invalid/a.zip", 4242, sha256="ab" * 32)
+
+        def rel(version: str, notes: str = "", assets: tuple = ()) -> updater.Release:
+            return updater.Release(
+                tag=f"v{version}", version=version, title=f"CanvasHelper v{version}",
+                notes=notes, url=f"https://example.invalid/releases/v{version}",
+                published_at="2026-11-02T10:00:00Z", assets=list(assets),
+            )
+
+        r140 = rel("1.4.0", "### 新增 · 版本校验\n\n- **发现新版**会提示\n- 修了一个 `bug`",
+                   assets=(wheel, z64))
+        r131 = rel("1.3.1", "### 修复\n\n- 修了待办排序", assets=(wheel,))
+        r130 = rel("1.3.0", "### 当前版本\n\n- 这一条不该出现在公告里")
+        releases = [r140, r131, r130]
+
+        status = updater.check("1.3.0", fetch=lambda: releases)
+        check("联网检查成功", status.ok and not status.from_cache, str(status))
+        check("最新版本正确", status.latest == "1.4.0", status.latest)
+        check("落后期间的所有版本都算进来",
+              [r.version for r in status.newer] == ["1.4.0", "1.3.1"],
+              str([r.version for r in status.newer]))
+        check("落后版本数", status.behind == 2, str(status.behind))
+        check("选中 win64 zip 而不是 wheel",
+              status.asset is not None and status.asset.name.endswith("win64.zip"),
+              repr(status.asset))
+
+        notes = status.notes_text
+        check("公告包含每个落后版本", "v1.4.0" in notes and "v1.3.1" in notes, notes[:80])
+        check("公告不含当前版本", "v1.3.0" not in notes)
+        check("公告清掉 markdown 记号",
+              "**" not in notes and "`" not in notes and "###" not in notes, notes[:80])
+        check("公告新版本在前", notes.index("v1.4.0") < notes.index("v1.3.1"))
+
+        crlf = updater.format_notes([rel("9.9.9", "### 标题\r\n\r\n\r\n\r\n- 一条\r\n- 两条")])
+        check("CRLF 正文被归一化（不留空行与 \\r）",
+              "\r" not in crlf and "\n\n\n" not in crlf and "一条" in crlf, crlf[:60])
+
+        # --- 缓存与节流 ---
+        check("检查结果写入缓存", updater.UPDATE_CACHE_PATH.is_file())
+        cached = updater.cached_status("1.3.0")
+        check("缓存可离线展示公告",
+              cached is not None and cached.from_cache and cached.has_update
+              and cached.latest == "1.4.0", repr(cached))
+        check("刚检查过 24 小时内不再联网", not updater.needs_check(24))
+        check("interval=0 表示每次都查", updater.needs_check(0))
+        data = json.loads(updater.UPDATE_CACHE_PATH.read_text(encoding="utf-8"))
+        data["attempted_at"] = (now_local() - timedelta(hours=25)).isoformat(timespec="seconds")
+        updater.UPDATE_CACHE_PATH.write_text(json.dumps(data, ensure_ascii=False),
+                                            encoding="utf-8")
+        check("超过间隔就重新检查", updater.needs_check(24))
+
+        # --- 离线 / 坏缓存 ---
+        offline = updater.check("1.3.0", fetch=list)
+        check("离线不抛异常、也不算有更新",
+              (not offline.ok) and (not offline.has_update), repr(offline))
+        attempt = json.loads(updater.UPDATE_CACHE_PATH.read_text(encoding="utf-8"))
+        check("离线也记下尝试时间（避免每次启动都等超时）",
+              bool(attempt.get("attempted_at")), str(attempt.get("attempted_at")))
+        check("离线时旧公告仍可读", updater.cached_status("1.3.0") is not None)
+        updater.UPDATE_CACHE_PATH.write_text("{ 坏缓存", encoding="utf-8")
+        check("坏缓存读作空", updater.read_cache() == {})
+        check("坏缓存当作没检查过", updater.cached_status("1.3.0") is None
+              and updater.needs_check(24))
+
+        # --- 提醒策略 ---
+        again = updater.check("1.3.0", fetch=lambda: releases)
+        check("发现新版 -> 横幅 + 自动公告", updater.should_notify(again, {}) == (True, True))
+        check("看过公告后只留横幅",
+              updater.should_notify(again, {"update": {"seen": "1.4.0"}}) == (True, False))
+        check("跳过该版本后彻底安静",
+              updater.should_notify(again, {"update": {"skipped": "1.4.0"}}) == (False, False))
+        check("跳过旧版本不影响新版本",
+              updater.should_notify(again, {"update": {"skipped": "1.3.1"}}) == (True, True))
+        fresh = updater.check("1.4.0", fetch=lambda: releases)
+        check("已是最新不提示",
+              (not fresh.has_update) and updater.should_notify(fresh, {}) == (False, False))
+        check("检查失败不提示", updater.should_notify(offline, {}) == (False, False))
+
+        # --- 资产挑选 ---
+        check("没有 zip 时不给资产", updater.pick_asset(rel("1.4.0", assets=(wheel,))) is None)
+        plain = updater.Asset("CanvasHelper-1.4.0.zip", "https://example.invalid/b.zip", 10)
+        picked = updater.pick_asset(rel("1.4.0", assets=(wheel, plain, z64)))
+        check("多个 zip 时优先 win64", picked is not None and picked.name == z64.name,
+              repr(picked))
+
+        # --- 一键替换的安全阀 ---
+        app = tmp / "app" / "CanvasHelper"
+        (app / "_internal").mkdir(parents=True)
+        (app / "CanvasHelper.exe").write_bytes(b"MZ")
+        check("标准单目录构建可自动替换", updater.safe_to_replace(app))
+        check("目录里没有 exe 就不替换", not updater.safe_to_replace(tmp / "app"))
+        check("盘符 / 家目录不替换", not updater.safe_to_replace(Path.home()))
+        (app / "我的笔记.txt").write_text("x", encoding="utf-8")
+        check("多出用户文件就不替换（防止 /MIR 删资料）",
+              not updater.safe_to_replace(app))
+        (app / "我的笔记.txt").unlink()
+
+        # --- 解压（含 zip-slip）+ 替换脚本 ---
+        zpath = tmp / "CanvasHelper-v1.4.0-win64.zip"
+        with zipfile.ZipFile(zpath, "w") as zf:
+            zf.writestr("CanvasHelper/CanvasHelper.exe", b"MZ")
+            zf.writestr("CanvasHelper/_internal/lib.dll", b"dll")
+            zf.writestr("../evil.txt", b"x")
+        new_dir = updater.stage(zpath, "1.4.0")
+        check("解压出 exe 所在目录", (new_dir / "CanvasHelper.exe").is_file(), str(new_dir))
+        check("拒绝目录穿越",
+              not (tmp / "evil.txt").exists() and not (tmp / "updates" / "evil.txt").exists())
+        check("解压结果可自动替换", updater.safe_to_replace(app, new_dir))
+
+        script = updater.write_apply_script(4321, app, new_dir)
+        text = script.read_text(encoding="utf-8-sig")
+        check("替换脚本落在 updates 目录",
+              script.is_file() and script.parent == updater.UPDATES_DIR, str(script))
+        check("脚本等待旧进程退出",
+              "$waitPid = 4321" in text and "Wait-Process -Id $waitPid" in text, text[:160])
+        check("脚本镜像替换", "robocopy" in text.lower() and "/MIR" in text)
+        check("脚本替换完重启", "Start-Process" in text and "CanvasHelper.exe" in text)
+        check("脚本里的路径带引号（中文路径也安全）", f"'{app}'" in text, text[:160])
+
+        # --- 一键清理能看到并删掉更新包 ---
+        from canvas_helper import cleaner
+
+        targets = {t.key: t for t in cleaner.scan()}
+        check("一键清理能看见已下载的更新包",
+              "updates" in targets and targets["updates"].bytes > 0,
+              str(sorted(targets)))
+        rep = cleaner.run({"updates"})
+        check("一键清理能删掉更新包",
+              "updates" in rep["cleaned"] and not updater.UPDATES_DIR.exists(), str(rep))
+
+        # --- 启动时「已是最新」会自动回收上次的更新包 ---
+        updater.UPDATES_DIR.mkdir(parents=True, exist_ok=True)
+        (updater.UPDATES_DIR / "old.zip").write_bytes(b"12345")
+        freed = updater.cleanup_downloads()
+        check("已是最新时自动回收更新包",
+              freed == 5 and not updater.UPDATES_DIR.exists(), str(freed))
+    finally:
+        updater.UPDATE_CACHE_PATH, updater.UPDATES_DIR = old_cache, old_updates
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # --- 静态：公告来源与打包自检清单 ---
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    check("CHANGELOG 有当前版本小节（发版公告就抓这里）",
+          re.search(rf"^## \[{re.escape(ver)}\]", changelog, re.MULTILINE) is not None,
+          ver)
+    check("自检清单包含 updater（打包漏了 exe 会崩）", "updater" in _SUBMODULES)
+    example = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    check("配置模板有 update 段",
+          {"check_on_start", "interval_hours", "include_prerelease"}
+          <= set(example.get("update") or {}), str(example.get("update")))
+    check("默认开启启动检查", DEFAULT_CONFIG["update"]["check_on_start"] is True,
+          str(DEFAULT_CONFIG["update"]))
+
+
 # --------------------------------------------------------------------------- #
 # 脚本入口
 # --------------------------------------------------------------------------- #
@@ -1272,6 +1597,7 @@ def main() -> int:
     s5_drafts(c, res, cfg)
     s5b_completed()
     s5c_cleaner()
+    s5d_sort_and_color()
     s6_plan()
     s6b_local()
     s6c_rename()
@@ -1284,6 +1610,7 @@ def main() -> int:
     s13_universal()
     s14_schools()
     s15_schoollist()
+    s16_update()
 
     if fixture_root is not None:
         shutil.rmtree(fixture_root, ignore_errors=True)

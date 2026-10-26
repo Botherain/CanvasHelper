@@ -207,6 +207,19 @@ def scan() -> list[Target]:
             "session.json 与浏览器 Cookie；清理后必须重新在浏览器里登录一次。",
             f, b, default=False, destructive=True,
         ))
+
+    # 8) 已下载的更新包（更新时才有，几十上百 MB，可随时重下）
+    from .updater import UPDATES_DIR
+
+    if UPDATES_DIR.is_dir():
+        f, b = _measure([UPDATES_DIR])
+        if f:
+            out.append(Target(
+                "updates", "已下载的更新包",
+                f"{UPDATES_DIR.name} 目录：更新时下载的 zip 与解压出来的新版本，"
+                "需要时会重新下载。",
+                f, b, default=True,
+            ))
     return out
 
 
@@ -333,6 +346,17 @@ def run(keys: set[str], progress: Callable[[str], None] = lambda m: None) -> dic
         report["cleaned"].append("login")
         report["messages"].append("登录态已清除，下次同步需要重新登录")
 
+    if "updates" in keys:
+        from .updater import UPDATES_DIR
+
+        f, b, sk = _remove([UPDATES_DIR]) if UPDATES_DIR.is_dir() else (0, 0, 0)
+        report["files"] += f
+        report["bytes"] += b
+        report["skipped"] += sk
+        report["cleaned"].append("updates")
+        if f:
+            report["messages"].append("已清理下载的更新包（需要时会重新下载）")
+
     return report
 
 
@@ -357,6 +381,7 @@ def clean_duplicate_todos(progress: Callable[[str], None] = lambda m: None) -> i
             todo_path, tmp, exe,
             prepared_count=before, drafts=[],
             progress=progress,
+            cfg=cfg,
         )
     else:
         deskbox.apply_copy(todo_path, tmp)

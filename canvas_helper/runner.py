@@ -67,6 +67,10 @@ def _todo_summary(added: int, st: dict) -> str:
         parts.append(f"{st['existing']} 项已存在")
     if st.get("deduped"):
         parts.append(f"清理重复 {st['deduped']} 条")
+    if st.get("recolored"):
+        parts.append(f"更新 {st['recolored']} 条待办颜色")
+    if st.get("resorted"):
+        parts.append(f"按截止时间重排 {st['resorted']} 条")
     return "，".join(parts)
 
 
@@ -143,6 +147,10 @@ def resolve_courses(cfg: dict, api: CanvasAPI) -> tuple[list[Course], dict[int, 
             folder = root / safe
             log.info("为 %s 使用文件夹 %s", c.short, folder)
         mapping[c.id] = folder
+    # 课程识别完成即分配待办颜色：按 selected_courses 顺序首次取色，
+    # 之后只给新课程补色，用户手工改过的映射不会被覆盖。
+    if selected:
+        deskbox.ensure_course_colors(cfg, selected)
     return selected, mapping
 
 
@@ -230,7 +238,8 @@ def run_sync(
 
         # 待办草稿在预览阶段就算出来，便于界面上直接看到截止时间
         drafts = deskbox.build_drafts(
-            {c.id: c for c in courses}, items_by_course, attachment_lookup(plans)
+            {c.id: c for c in courses}, items_by_course, attachment_lookup(plans),
+            cfg=cfg,
         )
         res.drafts = drafts.drafts
         res.todo_total_drafts = len(drafts.drafts)
@@ -289,6 +298,7 @@ def run_sync(
                         prepared_count=st["total_items"], drafts=added,
                         offset_minutes=int(cfg["deskbox"].get("reminder_offset_minutes", 1440)),
                         progress=progress,
+                        cfg=cfg["deskbox"],
                     )
                     res.todo_mode = "swapped"
                 else:
@@ -352,7 +362,7 @@ def collect_deadlines(cfg: dict | None = None, progress: Progress = _nop) -> lis
                 items_by_course[c.id] = api.collect_items(c.id)[0]
             except Exception as exc:
                 log.warning("%s 读取失败: %s", c.short, exc)
-        drafts = deskbox.build_drafts({c.id: c for c in courses}, items_by_course)
+        drafts = deskbox.build_drafts({c.id: c for c in courses}, items_by_course, cfg=cfg)
         progress(f"共 {len(drafts.drafts)} 项未截止任务")
         return drafts.drafts
     finally:
@@ -417,7 +427,7 @@ def run_report(cfg: dict | None = None, headless: bool = False, progress: Progre
                 items_by_course[c.id] = []
 
         notices = extras.collect_notices(api, courses, progress) if cfg["extras"].get("notices") else []
-        drafts = deskbox.build_drafts({c.id: c for c in courses}, items_by_course).drafts
+        drafts = deskbox.build_drafts({c.id: c for c in courses}, items_by_course, cfg=cfg).drafts
 
         grades: dict[int, dict] = {}
         if cfg["extras"].get("grades"):
@@ -465,6 +475,7 @@ def flush_pending(cfg: dict | None = None, progress: Progress = _nop) -> int:
             prepared_count=st["total_items"], drafts=added,
             offset_minutes=int(cfg["deskbox"].get("reminder_offset_minutes", 1440)),
             progress=progress,
+            cfg=cfg["deskbox"],
         )
     else:
         deskbox.apply_copy(todo_path, tmp)

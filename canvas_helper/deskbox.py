@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from ctypes import wintypes
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -24,6 +24,7 @@ from .paths import (
     get_logger,
     load_state,
     now_local,
+    save_config,
     save_state,
     to_local,
     zone_or_none,
@@ -39,6 +40,15 @@ log = get_logger()
 HK = zone_or_none("Asia/Hong_Kong")
 
 HTML_RE = re.compile(r"<[^>]+>")
+
+#: DeskBox 支持的待办颜色（与 TodoItem.SupportedColorMarkers 对齐）。
+TODO_COLORS = ("red", "orange", "yellow", "green", "blue", "purple", "teal", "pink")
+DEFAULT_MANUAL_COLOR = "pink"
+
+#: Canvas 链接里的课程 id：/courses/70588/assignments/123
+_COURSE_URL_RE = re.compile(r"/courses/(\d+)(?:[/?#]|$)")
+#: 待办标题开头的课程代码：CS5187 · 标题 / CS5187-标题
+_COURSE_HEAD_RE = re.compile(r"^([A-Za-z]{1,8})\s*[-_ ]?\s*(\d{3,5})(?![0-9])")
 
 
 @lru_cache(maxsize=8)
@@ -107,6 +117,226 @@ def _fmt_due(dt: datetime) -> str:
     return dt.isoformat(timespec="seconds")
 
 
+# ---------- 待办颜色 ----------
+
+def normalize_color(value: str | None, default: str | None = None) -> str | None:
+    """把配置里的颜色名规范化；不认识的颜色回落到 ``default``。"""
+    text = (value or "").strip().lower()
+    if not text:
+        return default
+    return text if text in TODO_COLORS else default
+
+
+def manual_color_of(cfg: dict | None) -> str | None:
+    """配置里的「自建待办颜色」；空字符串 / none / off 表示不修改。"""
+    raw = (cfg or {}).get("manual_color", DEFAULT_MANUAL_COLOR)
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if not text or text in ("none", "off", "no"):
+        return None
+    return text if text in TODO_COLORS else DEFAULT_MANUAL_COLOR
+
+
+def _course_entries(courses: Iterable[Course]) -> list[tuple[str, str]]:
+    """把 Course 列表变成 ``(课程 id, 显示名)``，按传入顺序去重。"""
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for course in courses or []:
+        cid = str(getattr(course, "id", "") or "")
+        if not cid or cid == "0" or cid in seen:
+            continue
+        short = str(getattr(course, "short", "") or cid)
+        name = str(getattr(course, "name", "") or "").strip()
+        if not name or name == short or name.upper().startswith(short.upper()):
+            # 课程名本身已带代码（或课程没有名字）时不再重复拼一遍
+            label = name or short
+        else:
+            label = f"{short} - {name}"
+        out.append((cid, label))
+        seen.add(cid)
+    return out
+
+
+def ensure_course_colors(
+    cfg: dict,
+    courses: Iterable[Course],
+    *,
+    persist: bool = True,
+) -> dict[str, str]:
+    """给新识别到的课程补上 DeskBox 颜色，并保存本地快照。
+
+    - 已有颜色一律保留，不覆盖用户在设置页改过的值；
+    - 新课程按传入顺序拿当前未被占用的颜色；
+    - ``manual_color`` 不参与课程分配，避免和自建待办撞色；
+    - ``cfg`` 是**完整配置**（含 ``deskbox`` 段），不是 deskbox 子字典。
+    """
+    db = cfg.setdefault("deskbox", {})
+    raw_colors = dict(db.get("course_colors") or {})
+    colors: dict[str, str] = {}
+    for cid, value in raw_colors.items():
+        color = normalize_color(value)
+        if color:
+            colors[str(cid)] = color
+
+    raw_labels = dict(db.get("course_labels") or {})
+    labels = {str(k): str(v) for k, v in raw_labels.items() if v}
+
+    manual = manual_color_of(db)
+    palette = [c for c in TODO_COLORS if c != manual] or list(TODO_COLORS)
+    entries = _course_entries(courses)
+    active = [cid for cid, _ in entries]
+    used = {colors[cid] for cid in active if cid in colors}
+
+    for cid, label in entries:
+        labels[cid] = label
+        if cid in colors:
+            continue
+        color = next((c for c in palette if c not in used), None)
+        if color is None:
+            # 课程数超过调色板时才循环复用；先保证每门课都有颜色。
+            color = palette[len(used) % len(palette)]
+        colors[cid] = color
+        used.add(color)
+
+    old_colors = {
+        str(k): color
+        for k, v in raw_colors.items()
+        if (color := normalize_color(v))
+    }
+    old_labels = {str(k): str(v) for k, v in raw_labels.items() if v}
+    if colors != old_colors or labels != old_labels:
+        db["course_colors"] = colors
+        db["course_labels"] = labels
+        if persist:
+            try:
+                save_config(cfg)
+            except Exception as exc:  # 配置只读 / 被占用时不打断同步
+                log.warning("保存课程颜色失败: %s", exc)
+    return colors
+
+
+def _course_key(text: str) -> str:
+    """标题开头的课程代码（CS5187 · xxx -> CS5187）；没有则返回空串。"""
+    match = _COURSE_HEAD_RE.match((text or "").strip())
+    return (match.group(1) + match.group(2)).upper() if match else ""
+
+
+def _label_index(labels: dict[str, str]) -> list[tuple[str, str]]:
+    """课程显示名 -> 可匹配的代码前缀，长的优先匹配。"""
+    out: list[tuple[str, str]] = []
+    for cid, label in labels.items():
+        text = str(label or "").strip()
+        if not text:
+            continue
+        key = _course_key(text)
+        if key:
+            out.append((key, str(cid)))
+        head = re.split(r"\s+-\s+|·", text, maxsplit=1)[0].strip()
+        head_key = re.sub(r"\s+", "", head).upper()
+        if head_key and head_key != key:
+            out.append((head_key, str(cid)))
+    out.sort(key=lambda item: len(item[0]), reverse=True)
+    return out
+
+
+def _match_course(text: str, index: list[tuple[str, str]]) -> str | None:
+    # 两侧都去掉所有空白再比，这样「MATH 101」这种带空格的课程代码也能对上；
+    # 命中后必须紧跟分隔符（或正好结束），避免 CS51 把 CS5187 吃进来。
+    value = re.sub(r"\s+", "", (text or "")).upper()
+    for key, cid in index:
+        if not key or not value.startswith(key):
+            continue
+        if len(value) == len(key) or value[len(key)] in "-·:：/|,，)]":
+            return cid
+    return None
+
+
+def recolor_items(
+    doc: dict,
+    cfg: dict | None,
+    course_names: dict[str, str] | None = None,
+) -> int:
+    """按课程重写待办的 ``colorMarker``，返回被改动的条目数。
+
+    课程识别顺序：
+    1. 备注里的 Canvas 链接 ``/courses/<课程id>/...``；
+    2. 旧条目没有链接时，用标题开头的课程代码兜底；
+    3. 都不匹配、也不像课程待办的，视为自建待办，使用 ``manual_color``。
+    """
+    db = cfg or {}
+    colors: dict[str, str] = {}
+    for cid, value in (db.get("course_colors") or {}).items():
+        color = normalize_color(value)
+        if color:
+            colors[str(cid)] = color
+
+    manual = manual_color_of(db)
+    labels = {str(k): str(v) for k, v in (db.get("course_labels") or {}).items() if v}
+    for cid, label in (course_names or {}).items():
+        if label:
+            labels[str(cid)] = str(label)
+    index = _label_index(labels)
+
+    changed = 0
+    for item in doc.get("items") or []:
+        text = item.get("text") or ""
+        notes = item.get("notes") or ""
+        match = _COURSE_URL_RE.search(notes)
+        cid = match.group(1) if match else _match_course(text, index)
+
+        if cid and cid in colors:
+            new_color = colors[cid]
+        elif match or _course_key(text):
+            # Canvas 条目但当前没有对应颜色记录：保持原样，避免误标成自建。
+            continue
+        elif manual:
+            new_color = manual
+        else:
+            continue
+
+        if item.get("colorMarker") != new_color:
+            item["colorMarker"] = new_color
+            changed += 1
+    return changed
+
+
+def reorder_by_due(doc: dict) -> int:
+    """按截止时间升序重排全部待办，并重写 ``sortOrder``。
+
+    - 无截止时间 / 解析失败的排最后；
+    - 同一截止时间按原 ``sortOrder`` 排，保持用户手动排好的相对顺序；
+    - 返回被改动的条目数（位置变了或 sortOrder 与实际位置不一致），
+      0 表示磁盘上的顺序已经是对的，不需要写回。
+    """
+    items = doc.get("items") or []
+    if not items:
+        return 0
+
+    far_future = datetime.max.replace(tzinfo=UTC)
+    old_pos = {id(item): i for i, item in enumerate(items)}
+
+    def sort_key(pair: tuple[int, dict]) -> tuple:
+        pos, item = pair
+        due = _parse_due(item.get("dueDate"))
+        try:
+            order = int(item.get("sortOrder") or 0)
+        except (TypeError, ValueError):
+            order = 0
+        return (due is None, due or far_future, order, pos)
+
+    ordered = [item for _, item in sorted(enumerate(items), key=sort_key)]
+    # 位置变了、或 sortOrder 与实际位置不一致（旧文件全是 0、或删过条目）都算“有改动”，
+    # 否则副本和磁盘内容一样会被判成未变，DeskBox 永远不会按新顺序显示。
+    changed = 0
+    for i, item in enumerate(ordered):
+        if old_pos[id(item)] != i or item.get("sortOrder") != i:
+            changed += 1
+        item["sortOrder"] = i
+    doc["items"] = ordered
+    return changed
+
+
 def kind_of(item: Item, module_name: str) -> str:
     text = f"{module_name} {item.title}".lower()
     if "project" in text:
@@ -127,11 +357,23 @@ def build_drafts(
     items_by_course: dict[int, list[Item]],
     attachment_lookup: dict[tuple[int, int | None], Path] | None = None,
     only_future_days: int = 365,
+    *,
+    cfg: dict | None = None,
 ) -> TodoBuildResult:
-    """把需要提交的项变成待办草稿。"""
+    """把需要提交的项变成待办草稿。
+
+    ``cfg`` 是完整配置（可选）。传入时会用 ``deskbox.course_colors`` 里的
+    课程颜色；不传则退回按任务类型上色，方便离线测试。
+    """
     result = TodoBuildResult()
     attachment_lookup = attachment_lookup or {}
     cutoff = now_local()
+    db = (cfg or {}).get("deskbox") or {}
+    course_colors: dict[str, str] = {}
+    for cid, value in (db.get("course_colors") or {}).items():
+        color = normalize_color(value)
+        if color:
+            course_colors[str(cid)] = color
 
     for cid, items in items_by_course.items():
         course = courses.get(cid)
@@ -166,7 +408,7 @@ def build_drafts(
                     due=due,
                     kind=k,
                     url=url,
-                    color=_KIND_COLOR[k],
+                    color=course_colors.get(str(cid)) or _KIND_COLOR[k],
                     notes="\n\n".join(notes_parts),
                     attachment=attach,
                 )
@@ -452,7 +694,7 @@ def write_copy(doc: dict, todo_path: Path) -> Path:
 
 
 def prepare(doc_path: Path, drafts: list[TodoDraft], cfg: dict) -> tuple[Path, list[TodoDraft], dict]:
-    """读取 -> 去重 -> 合并 -> 写副本，返回 (副本路径, 新增草稿, 统计)。"""
+    """读取 -> 去重 -> 合并 -> 上色/排序 -> 写副本，返回 (副本路径, 新增草稿, 统计)。"""
     doc = load_doc(doc_path)
     if cfg.get("fix_attachment_paths", True):
         fix_paths(doc)
@@ -469,6 +711,16 @@ def prepare(doc_path: Path, drafts: list[TodoDraft], cfg: dict) -> tuple[Path, l
     if mstats.get("done_dirty"):
         save_done_index(done_index)
 
+    # 草稿里的课程名用于旧条目（没有 Canvas 链接）的兜底识别；完整映射在
+    # resolve_courses() 识别课程时已经写进 cfg["course_colors"]。
+    course_names: dict[str, str] = {}
+    for draft in drafts:
+        cid = getattr(draft.course, "id", 0)
+        if cid:
+            course_names.setdefault(str(cid), draft.course.short or str(cid))
+    recolored = recolor_items(doc, cfg, course_names)
+    resorted = reorder_by_due(doc) if cfg.get("sort_by_due", True) else 0
+
     tmp = write_copy(doc, doc_path)
     stats = {
         "total_items": len(doc["items"]),
@@ -477,8 +729,10 @@ def prepare(doc_path: Path, drafts: list[TodoDraft], cfg: dict) -> tuple[Path, l
         "completed": mstats.get("completed", 0),
         "reopened": mstats.get("reopened", 0),
         "deduped": len(deduped),
+        "recolored": recolored,
+        "resorted": resorted,
         "fixed_paths": True,
-        "changed": bool(added) or bool(deduped),
+        "changed": bool(added) or bool(deduped) or recolored > 0 or resorted > 0,
     }
     if deduped:
         log.info("已移除 %d 条未完成的重复待办", len(deduped))
@@ -486,6 +740,10 @@ def prepare(doc_path: Path, drafts: list[TodoDraft], cfg: dict) -> tuple[Path, l
         log.info("%d 项已完成，未重复添加", stats["completed"])
     if stats["reopened"]:
         log.info("%d 项截止时间已更新，重新添加为新待办", stats["reopened"])
+    if recolored:
+        log.info("已更新 %d 条待办颜色", recolored)
+    if resorted:
+        log.info("已按截止时间重排 %d 条待办", resorted)
     return tmp, added, stats
 
 
@@ -609,11 +867,15 @@ def quick_swap(
     drafts: list[TodoDraft],
     offset_minutes: int = 1440,
     progress: Callable[[str], None] = lambda m: None,
+    *,
+    cfg: dict | None = None,
 ) -> dict:
     """关闭 -> 替换 -> 重启，尽量缩短 DeskBox 停机时间。
 
     ``prepared_count`` 是生成副本时的条目数；如果关闭期间 todo.json 又被改动，
     会以磁盘最新内容重新合并一次（纯内存操作，毫秒级），避免覆盖用户手工新增的待办。
+    ``cfg`` 是 ``config["deskbox"]``，用于重新合并后的上色与排序；不传时仍按
+    截止时间排序，但不改颜色。
     """
     stat = {"stopped": False, "applied": False, "started": False, "remerged": False}
     progress("正在关闭 DeskBox…")
@@ -630,6 +892,14 @@ def quick_swap(
                 current, drafts, offset_minutes,
                 done_index=load_done_index(),
             )
+            course_names: dict[str, str] = {}
+            for draft in drafts:
+                cid = getattr(draft.course, "id", 0)
+                if cid:
+                    course_names.setdefault(str(cid), draft.course.short or str(cid))
+            recolor_items(current, cfg, course_names)
+            if (cfg or {}).get("sort_by_due", True):
+                reorder_by_due(current)
             tmp = write_copy(current, doc_path)
             stat["remerged"] = True
             log.info("关闭期间 todo.json 有变化，已重新合并（%s 条）", len(current["items"]))

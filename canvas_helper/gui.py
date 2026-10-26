@@ -12,7 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 from typing import Any
 
-from . import APP_NAME, __version__, deskbox, runner, scheduler
+from . import APP_NAME, __version__, deskbox, runner, scheduler, updater
 from .canvas_api import Course
 from .classify import course_dirs, match_folder
 from .paths import (
@@ -24,12 +24,25 @@ from .paths import (
     load_state,
     now_local,
     save_config,
+    save_state,
 )
 
 log = get_logger()
 
 FONT = ("Microsoft YaHei UI", 9)
 FONT_BOLD = ("Microsoft YaHei UI", 10, "bold")
+
+#: 设置页显示用的颜色名（值仍写 DeskBox 认识的英文名）
+_COLOR_ZH = {
+    "red": "红",
+    "orange": "橙",
+    "yellow": "黄",
+    "green": "绿",
+    "blue": "蓝",
+    "purple": "紫",
+    "teal": "青",
+    "pink": "粉",
+}
 
 
 class App(tk.Tk):
@@ -52,6 +65,13 @@ class App(tk.Tk):
         self.notices: list[dict] = []
         self._on_done = None
         self._on_error = None
+        # 版本检查：先读缓存（零网络），启动后再后台补一次联网检查
+        self.update_status: updater.UpdateStatus | None = updater.cached_status()
+        self._update_checking = False
+        # 公告窗打开期间，下载进度文字写到这里；窗口关掉后置回 None
+        self._update_status_var: tk.StringVar | None = None
+        # 公告窗本身（避免重复点横幅/按钮时开出好几个）
+        self._update_win: tk.Toplevel | None = None
 
         self._build_ui()
         self.after(100, self._pump)
@@ -64,6 +84,8 @@ class App(tk.Tk):
         self._set_status(f"上次同步：{state.get('last_sync') or '（从未）'}")
         # 院校清单在线更新：后台静默拉取，不阻塞界面（缓存过期才拉）
         self._refresh_school_list_async()
+        # 版本校验：错开一点启动，让首屏先画出来；节流由 updater 自己控制
+        self.after(1500, self._check_update_async)
         # 首次运行：还没配过站点地址 -> 先让用户选学校，选完再进登录
         if not canvas_home():
             self.after(400, self._first_run_pick)
@@ -152,6 +174,18 @@ class App(tk.Tk):
                         self._safe_call(self._on_error, payload)
                     else:
                         messagebox.showerror(APP_NAME, str(payload))
+                elif kind == "update":
+                    self._on_update_status(*payload)
+                elif kind == "update-progress":
+                    if self._update_status_var is not None:
+                        self._update_status_var.set(str(payload))
+                elif kind == "update-ready":
+                    self._on_update_ready(payload)
+                elif kind == "update-error":
+                    if self._update_status_var is not None:
+                        self._update_status_var.set(f"更新失败：{payload}")
+                    self.log(f"更新失败：{payload}")
+                    messagebox.showerror(APP_NAME, f"下载 / 准备更新失败：\n{payload}")
         except queue.Empty:
             pass
         self.after(100, self._pump)
@@ -213,12 +247,17 @@ class App(tk.Tk):
         lbl_login.pack(side="left", padx=(16, 0))
         # 过期时标签会变成「⚠ 已过期…点击重新登录」，直接点它即可
         lbl_login.bind("<Button-1>", lambda _e: self.do_load_courses())
+        # 「有新版本」提示：默认不占位，发现有更新才 pack 出来
+        self.update_var = tk.StringVar(value="")
+        self.update_label = ttk.Label(
+            head, textvariable=self.update_var, cursor="hand2", foreground="#0a58ca")
+        self.update_label.bind("<Button-1>", lambda _e: self.do_show_update())
         ttk.Button(head, text="登录 / 刷新课程", command=self.do_load_courses).pack(side="right")
         ttk.Button(head, text="打开 Canvas", command=self.open_canvas).pack(side="right", padx=6)
         ttk.Button(head, text="选择院校", command=self.do_pick_school).pack(side="right", padx=6)
 
         # 日志 + 状态栏（进度条 / 状态文字）先占位、贴底。
-        # ttk.Notebook 的请求高度由最高的那个标签页决定：设置页有 24 行控件，
+        # ttk.Notebook 的请求高度由最高的那个标签页决定：设置页有 31 行控件，
         # 实测把 notebook 的请求高度撑到 760px。若 notebook 先 pack，packer 会把
         # 剩余空间全给它、底部只剩 3px —— 进度条与状态文字被整体裁掉（默认窗口
         # 1200x820 即如此，要把窗口拉到约 960px 高才显现）。
@@ -354,7 +393,7 @@ class App(tk.Tk):
     def _build_settings_tab(self) -> None:
         outer = ttk.Frame(self.nb, padding=14)
         self.nb.add(outer, text=" 设置 ")
-        # 这一页有 24 行控件，高度远超标签页可视区，而 grid 本身没有滚动机制：
+        # 这一页有 31 行控件，高度远超标签页可视区，而 grid 本身没有滚动机制：
         # 窗口一矮，底部几行（计划任务、按钮组、路径说明）就掉到可视区外且够不着。
         # 套一层 Canvas + 纵向滚动条，内容帧 tab 放进 Canvas 里。
         canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
@@ -372,6 +411,12 @@ class App(tk.Tk):
         self.var_todo = tk.StringVar(value=self.cfg["deskbox"]["todo_path"])
         self.var_exe = tk.StringVar(value=self.cfg["deskbox"]["exe_path"])
         self.var_fix = tk.BooleanVar(value=self.cfg["deskbox"]["fix_attachment_paths"])
+        self.var_sort = tk.BooleanVar(value=self.cfg["deskbox"].get("sort_by_due", True))
+        self.var_manual_color = tk.StringVar(
+            value=self._color_display(self.cfg["deskbox"].get("manual_color")))
+        self.course_color_var = tk.StringVar(value="")
+        self.var_update = tk.BooleanVar(
+            value=bool((self.cfg.get("update") or {}).get("check_on_start", True)))
         self.var_ics = tk.BooleanVar(value=self.cfg["extras"]["ics"])
         self.var_grades = tk.BooleanVar(value=self.cfg["extras"]["grades"])
         self.var_notices = tk.BooleanVar(value=self.cfg["extras"]["notices"])
@@ -421,28 +466,66 @@ class App(tk.Tk):
             tab, text="保存讨论区内容（帖子存快照，Colab/GitHub 链接文件直接下载）",
             variable=self.var_discuss).grid(row=13, column=0, columnspan=3, sticky="w")
 
+        ttk.Label(tab, text="待办外观", style="Header.TLabel").grid(
+            row=14, column=0, sticky="w", pady=(14, 4))
+        ttk.Checkbutton(
+            tab, text="写入 DeskBox 时按截止时间排序（会覆盖手动拖动顺序）",
+            variable=self.var_sort).grid(row=15, column=0, columnspan=3, sticky="w")
+        color_row = ttk.Frame(tab)
+        color_row.grid(row=16, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Label(color_row, text="自建待办颜色").pack(side="left")
+        ttk.Combobox(
+            color_row, textvariable=self.var_manual_color,
+            values=["不设置"] + [self._color_display(c) for c in deskbox.TODO_COLORS],
+            state="readonly", width=12,
+        ).pack(side="left", padx=6)
+        course_row = ttk.Frame(tab)
+        course_row.grid(row=17, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Label(course_row, text="课程颜色").pack(side="left")
+        ttk.Label(course_row, textvariable=self.course_color_var,
+                  foreground="#666").pack(side="left", padx=6)
+        ttk.Button(course_row, text="编辑课程颜色…",
+                   command=self.do_edit_course_colors).pack(side="left")
+
         ttk.Label(tab, text="后台（计划任务）同步时 DeskBox 待办处理方式",
-                  style="Header.TLabel").grid(row=14, column=0, sticky="w", pady=(14, 4))
+                  style="Header.TLabel").grid(row=18, column=0, sticky="w", pady=(14, 4))
         for i, (val, text) in enumerate((
             ("queue", "排队：不打扰 DeskBox，下次打开本程序时写入（推荐）"),
             ("restart", "立即重启 DeskBox 完成写入"),
             ("skip", "跳过：后台同步不写待办"),
         )):
             ttk.Radiobutton(tab, text=text, value=val, variable=self.var_policy).grid(
-                row=15 + i, column=0, columnspan=3, sticky="w")
+                row=19 + i, column=0, columnspan=3, sticky="w")
 
         ttk.Label(tab, text="计划任务", style="Header.TLabel").grid(
-            row=18, column=0, sticky="w", pady=(14, 4))
+            row=22, column=0, sticky="w", pady=(14, 4))
         ttk.Checkbutton(tab, text="启用每日自动同步", variable=self.var_sched).grid(
-            row=19, column=0, sticky="w")
-        ttk.Entry(tab, textvariable=self.var_synctime, width=10).grid(row=19, column=1, sticky="w")
+            row=23, column=0, sticky="w")
+        ttk.Entry(tab, textvariable=self.var_synctime, width=10).grid(row=23, column=1, sticky="w")
         ttk.Checkbutton(tab, text="每周生成学习摘要", variable=self.var_report).grid(
-            row=20, column=0, sticky="w")
+            row=24, column=0, sticky="w")
         ttk.Label(tab, text="（计划任务执行时使用已保存的浏览器登录态，无窗口）",
-                  foreground="#666").grid(row=21, column=0, columnspan=3, sticky="w")
+                  foreground="#666").grid(row=25, column=0, columnspan=3, sticky="w")
+
+        ttk.Label(tab, text="版本与更新", style="Header.TLabel").grid(
+            row=26, column=0, sticky="w", pady=(14, 4))
+        update_row = ttk.Frame(tab)
+        update_row.grid(row=27, column=0, columnspan=3, sticky="w", pady=2)
+        self.update_summary_var = tk.StringVar(value="")
+        ttk.Label(update_row, textvariable=self.update_summary_var,
+                  foreground="#666").pack(side="left")
+        ttk.Button(update_row, text="检查更新",
+                   command=self.do_check_update).pack(side="left", padx=(10, 4))
+        ttk.Button(update_row, text="查看更新公告",
+                   command=self.do_show_update).pack(side="left")
+        interval = updater.interval_of(self.cfg)
+        span = "每次启动都查" if interval <= 0 else f"每 {interval:g} 小时查一次"
+        ttk.Checkbutton(
+            tab, text=f"启动时自动检查更新（{span}，离线自动跳过）",
+            variable=self.var_update).grid(row=28, column=0, columnspan=3, sticky="w")
 
         btns = ttk.Frame(tab)
-        btns.grid(row=22, column=0, columnspan=3, sticky="w", pady=(18, 0))
+        btns.grid(row=29, column=0, columnspan=3, sticky="w", pady=(18, 0))
         ttk.Button(btns, text="保存设置", command=self.do_save_settings).pack(side="left")
         ttk.Button(btns, text="立即生成本周摘要", command=self.do_report).pack(side="left", padx=6)
         ttk.Button(btns, text="一键清理缓存", command=self.do_clean_cache).pack(side="left", padx=6)
@@ -455,7 +538,10 @@ class App(tk.Tk):
             tab,
             text=f"浏览器登录态保存在：{PROFILE_DIR}  ·  日志：{LOG_PATH}",
             foreground="#666",
-        ).grid(row=23, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ).grid(row=30, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        self._refresh_course_color_summary()
+        self._refresh_update_summary()
+        self._apply_update_banner()
 
         # 内容帧宽度跟随 Canvas；滚动区按内容实际高度计算，
         # 放得下时把滚动条置灰（避免一条永远不动却占宽的滚动条）。
@@ -481,6 +567,412 @@ class App(tk.Tk):
         canvas.bind("<Configure>", _sync)
         canvas.bind("<MouseWheel>", _wheel)
         _bind_wheel(tab)
+
+    # ---------- 待办颜色设置 ----------
+
+    @staticmethod
+    def _color_display(value: Any) -> str:
+        color = deskbox.normalize_color(value)
+        if not color:
+            return "不设置"
+        return f"{_COLOR_ZH.get(color, color)} {color}"
+
+    @staticmethod
+    def _color_value(text: str) -> str:
+        text = (text or "").strip()
+        if not text or text == "不设置":
+            return ""
+        name = text.split()[-1].lower()
+        return name if name in deskbox.TODO_COLORS else ""
+
+    def _refresh_course_color_summary(self) -> None:
+        if not hasattr(self, "course_color_var"):
+            return
+        colors = (self.cfg.get("deskbox") or {}).get("course_colors") or {}
+        count = sum(1 for value in colors.values() if deskbox.normalize_color(value))
+        self.course_color_var.set(f"已配置 {count} 门" if count else "尚未识别课程")
+
+    def do_edit_course_colors(self) -> None:
+        """逐门课修改 DeskBox 颜色；保存后写回 deskbox.course_colors。"""
+        db = self.cfg.setdefault("deskbox", {})
+        colors = {
+            str(cid): color
+            for cid, value in (db.get("course_colors") or {}).items()
+            if (color := deskbox.normalize_color(value))
+        }
+        labels = {str(k): str(v) for k, v in (db.get("course_labels") or {}).items() if v}
+        for cid, folder in (self.cfg.get("course_map") or {}).items():
+            name = Path(str(folder)).name
+            if name:
+                labels.setdefault(str(cid), name)
+
+        # 还没同步过、但已经读过截止时间时，drafts 里也有课程信息。
+        if not colors and self.result is not None:
+            courses = []
+            seen: set[int] = set()
+            for draft in getattr(self.result, "drafts", []) or []:
+                course = getattr(draft, "course", None)
+                cid = getattr(course, "id", 0)
+                if course is not None and cid and cid not in seen:
+                    courses.append(course)
+                    seen.add(cid)
+            if courses:
+                colors = deskbox.ensure_course_colors(self.cfg, courses)
+                labels = {str(k): str(v) for k, v in (db.get("course_labels") or {}).items() if v}
+
+        selected = [str(i) for i in (self.cfg.get("selected_courses") or [])]
+        ids: list[str] = [cid for cid in selected if cid in colors or cid in labels]
+        for cid in list(colors) + list(labels):
+            if cid not in ids:
+                ids.append(cid)
+        if not ids:
+            messagebox.showinfo(
+                APP_NAME,
+                "还没有识别到课程。\n请先「读取截止时间」或执行一次同步，再来编辑课程颜色。",
+            )
+            return
+
+        win = tk.Toplevel(self)
+        win.title("编辑课程颜色")
+        win.transient(self)
+        win.geometry("660x480")
+        win.grab_set()
+
+        outer = ttk.Frame(win, padding=12)
+        outer.pack(fill="both", expand=True)
+        ttk.Label(
+            outer,
+            text="每门课对应一种 DeskBox 颜色；保存后立即写入配置，下次写 DeskBox 时生效。"
+                 "选「不设置」的课程会在下次同步时自动分配。",
+            foreground="#666",
+        ).pack(anchor="w", pady=(0, 8))
+
+        body = ttk.Frame(outer)
+        body.pack(fill="both", expand=True)
+        canvas = tk.Canvas(body, highlightthickness=0, borderwidth=0)
+        sb = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        grid = ttk.Frame(canvas)
+        grid_id = canvas.create_window((0, 0), window=grid, anchor="nw")
+
+        choices = ["不设置"] + [self._color_display(c) for c in deskbox.TODO_COLORS]
+        vars_: dict[str, tk.StringVar] = {}
+        for row, cid in enumerate(ids):
+            label = labels.get(cid) or f"课程 {cid}"
+            if selected and cid not in selected:
+                label += "（历史课程）"
+            ttk.Label(grid, text=label).grid(
+                row=row, column=0, sticky="w", padx=(0, 16), pady=5)
+            var = tk.StringVar(value=self._color_display(colors.get(cid)))
+            ttk.Combobox(
+                grid, textvariable=var, values=choices, state="readonly", width=14,
+            ).grid(row=row, column=1, sticky="w", pady=5)
+            vars_[cid] = var
+        grid.columnconfigure(0, weight=1)
+
+        def _sync(_event: Any = None) -> None:
+            canvas.itemconfigure(grid_id, width=canvas.winfo_width())
+            bbox = canvas.bbox("all")
+            if bbox:
+                canvas.configure(scrollregion=bbox)
+
+        def _wheel(event: Any) -> None:
+            canvas.yview_scroll(-int(event.delta / 120), "units")
+
+        grid.bind("<Configure>", _sync)
+        canvas.bind("<Configure>", _sync)
+        canvas.bind("<MouseWheel>", _wheel)
+
+        def auto_assign() -> None:
+            manual = self._color_value(self.var_manual_color.get())
+            palette = [c for c in deskbox.TODO_COLORS if c != manual] or list(deskbox.TODO_COLORS)
+            order = [cid for cid in selected if cid in vars_] or list(vars_)
+            for i, cid in enumerate(order):
+                vars_[cid].set(self._color_display(palette[i % len(palette)]))
+
+        def save() -> None:
+            new_colors: dict[str, str] = {}
+            for cid, var in vars_.items():
+                color = self._color_value(var.get())
+                if color:
+                    new_colors[cid] = color
+            db["course_colors"] = new_colors
+            db["course_labels"] = {k: v for k, v in labels.items() if v}
+            save_config(self.cfg)
+            self._refresh_course_color_summary()
+            if new_colors:
+                self.log(f"课程颜色已保存（{len(new_colors)} 门），下次写 DeskBox 时生效")
+            else:
+                self.log("课程颜色已清空，下次同步会按选课顺序重新分配")
+            win.destroy()
+
+        btns = ttk.Frame(outer)
+        btns.pack(fill="x", pady=(10, 0))
+        ttk.Button(btns, text="按选课顺序重新分配", command=auto_assign).pack(side="left")
+        ttk.Button(btns, text="取消", command=win.destroy).pack(side="right")
+        ttk.Button(btns, text="保存", command=save).pack(side="right", padx=6)
+
+        win.wait_window()
+
+    # ---------- 版本与更新 ----------
+
+    def _refresh_update_summary(self) -> None:
+        """设置页那行「当前 vX · 已是最新 / 落后 N 版」。"""
+        if not hasattr(self, "update_summary_var"):
+            return
+        st = self.update_status
+        if st is None:
+            self.update_summary_var.set(f"当前 v{__version__} · 尚未检查")
+            return
+        if not st.ok:
+            self.update_summary_var.set(f"当前 v{__version__} · 上次检查失败")
+            return
+        when = (st.checked_at or "")[:16].replace("T", " ")
+        if st.has_update:
+            self.update_summary_var.set(
+                f"当前 v{__version__} → 最新 v{st.latest}（落后 {st.behind} 个版本）")
+        else:
+            self.update_summary_var.set(
+                f"当前 v{__version__} · 已是最新" + (f"（检查于 {when}）" if when else ""))
+
+    def _apply_update_banner(self) -> None:
+        """按缓存状态决定顶栏要不要挂「新版本可用」。"""
+        banner, _popup = updater.should_notify(self.update_status, load_state())
+        if banner and self.update_status is not None:
+            self.update_var.set(f"⬆ 新版本 v{self.update_status.latest} 可用，点此查看")
+            self.update_label.pack(side="left", padx=(12, 0))
+        else:
+            self.update_label.pack_forget()
+
+    @staticmethod
+    def _mark_update(key: str, version: str) -> None:
+        """在 state.json 里记住「已看过 / 已跳过」哪个版本（只存版本号）。"""
+        state = load_state()
+        info = dict(state.get("update") or {})
+        info[key] = version
+        state["update"] = info
+        save_state(state)
+
+    def _check_update_async(self) -> None:
+        """启动时的静默检查。
+
+        不走 ``bg()``：那个是单槽队列，启动阶段已被「院校清单 / 通知」占用，
+        再塞一个只会弹「有任务正在进行」。这里自己起线程，结果用单独的
+        队列消息回主线程。
+        """
+
+        def work() -> None:
+            try:
+                status = updater.maybe_check(self.cfg)
+            except Exception as exc:  # 更新检查永远不许把界面搞崩
+                log.exception("更新检查失败")
+                status = updater.UpdateStatus(ok=False, error=str(exc), current=__version__)
+            if status is not None:
+                self.q.put(("update", (status, False)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_update_status(self, status: updater.UpdateStatus, manual: bool) -> None:
+        self._update_checking = False
+        self.update_status = status
+        self._apply_update_banner()
+        self._refresh_update_summary()
+        if status.ok and not status.has_update:
+            # 已是最新：上次下载的更新包留着没用，顺手回收（几十上百 MB）
+            freed = updater.cleanup_downloads()
+            if freed:
+                self.log(f"已清理旧的更新包（{freed / 1048576.0:.1f} MB）")
+        if manual:
+            if not status.ok:
+                messagebox.showwarning(APP_NAME, f"检查更新失败：\n{status.error or '未知原因'}")
+            elif not status.has_update:
+                self.log(f"已是最新版本（v{__version__}）")
+                messagebox.showinfo(APP_NAME, f"当前已是最新版本（v{__version__}）。")
+            else:
+                self.log(f"发现新版本 v{status.latest}（当前 v{__version__}）")
+                # 手动查就是为了看内容，直接开公告窗，不再多弹一个「请点公告」框
+                self.do_show_update(auto=True)
+            return
+        if status.ok and status.has_update:
+            _banner, popup = updater.should_notify(status, load_state())
+            self.log(f"发现新版本 v{status.latest}（当前 v{__version__}）")
+            if popup:
+                self.do_show_update(auto=True)
+
+    def do_check_update(self) -> None:
+        """手动检查：绕过节流，失败会明说。"""
+        if self._update_checking:
+            return
+        self._update_checking = True
+        if hasattr(self, "update_summary_var"):
+            self.update_summary_var.set(f"当前 v{__version__} · 正在检查…")
+        section = self.cfg.get("update") or {}
+
+        def work() -> None:
+            try:
+                status = updater.check(
+                    include_prerelease=bool(section.get("include_prerelease", False)))
+            except Exception as exc:
+                status = updater.UpdateStatus(ok=False, error=str(exc), current=__version__)
+            self.q.put(("update", (status, True)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def do_show_update(self, auto: bool = False) -> None:
+        """展示「当前版本之后的所有版本说明」，并提供下载更新入口。
+
+        刻意**不用** ``wait_window()``：这个窗是从 ``_pump`` 里弹出来的，
+        嵌套事件循环会让队列里的下载进度消息一直排到窗口关掉才处理。
+        窗口是 ``grab_set`` 的，交互仍然只能落在它上面。
+        """
+        st = self.update_status
+        if st is None or not st.ok:
+            if not auto:
+                messagebox.showinfo(
+                    APP_NAME, "还没有检查过更新。\n先点「检查更新」联网查一次。")
+            return
+        if not st.has_update:
+            if not auto:
+                messagebox.showinfo(APP_NAME, f"当前已是最新版本（v{__version__}）。")
+            return
+        if self._update_win is not None and self._update_win.winfo_exists():
+            self._update_win.lift()
+            self._update_win.focus_force()
+            return
+
+        win = tk.Toplevel(self)
+        self._update_win = win
+        win.title(f"发现新版本 v{st.latest}")
+        win.transient(self)
+        win.geometry("780x640")
+        win.minsize(620, 460)
+        win.grab_set()
+
+        outer = ttk.Frame(win, padding=14)
+        outer.pack(fill="both", expand=True)
+        ttk.Label(
+            outer,
+            text=f"当前 v{__version__} → 最新 v{st.latest}（落后 {st.behind} 个版本）",
+            style="Header.TLabel",
+        ).pack(anchor="w")
+        when = (st.checked_at or "")[:16].replace("T", " ")
+        origin = "来自上次检查的缓存" if st.from_cache else f"检查于 {when}"
+        ttk.Label(
+            outer,
+            text=f"{origin}。以下是这段时间新增 / 修复的内容：",
+            foreground="#666",
+        ).pack(anchor="w", pady=(4, 8))
+
+        box = ScrolledText(outer, wrap="word", font=("Microsoft YaHei UI", 9))
+        box.pack(fill="both", expand=True)
+        box.insert("1.0", st.notes_text or "（这个版本没有写更新说明）")
+        box.configure(state="disabled")
+
+        status_var = tk.StringVar(value="")
+        self._update_status_var = status_var
+        ttk.Label(outer, textvariable=status_var, foreground="#666").pack(
+            anchor="w", pady=(8, 0))
+
+        def close() -> None:
+            # 看过了就不再自动弹；顶栏提示保留到装上新版本或点「跳过」
+            self._mark_update("seen", st.latest)
+            self._update_status_var = None
+            self._update_win = None
+            win.destroy()
+
+        def skip() -> None:
+            self._mark_update("skipped", st.latest)
+            self._apply_update_banner()
+            self.log(f"已跳过 v{st.latest} 的更新提示（有更新的版本时会再提醒）")
+            self._update_status_var = None
+            self._update_win = None
+            win.destroy()
+
+        def open_page() -> None:
+            with suppress(OSError):
+                os.startfile(st.newer[0].url or updater.RELEASES_PAGE)
+
+        def start_update() -> None:
+            asset = st.asset
+            app_dir = updater.current_app_dir()
+            if asset is None or app_dir is None or not updater.safe_to_replace(app_dir):
+                # 源码运行 / 没有 Windows 包 / 安装目录不适合镜像替换：
+                # 只给下载页，绝不擅自覆盖用户目录
+                self.log("当前环境不自动替换，已打开下载页")
+                if updater.is_frozen():
+                    self.log(f"安装目录 {app_dir} 含额外文件，自动替换会删掉它们，"
+                             "请手动解压覆盖")
+                open_page()
+                return
+            dl_btn.configure(state="disabled", text="正在下载…")
+            status_var.set("正在下载更新包…")
+
+            def work() -> None:
+                def report(got: int, total: int) -> None:
+                    text = (f"正在下载 {got / 1048576.0:.1f} / {total / 1048576.0:.1f} MB"
+                            if total else f"正在下载 {got / 1048576.0:.1f} MB")
+                    self.q.put(("update-progress", text))
+
+                try:
+                    path = updater.download(asset, progress=report)
+                    self.q.put(("update-progress", "正在解压…"))
+                    new_dir = updater.stage(path, st.latest)
+                    if not updater.safe_to_replace(app_dir, new_dir):
+                        self.q.put(("update-ready", ("manual", new_dir)))
+                        return
+                    script = updater.write_apply_script(os.getpid(), app_dir, new_dir)
+                    self.q.put(("update-ready", script))
+                except Exception as exc:
+                    self.q.put(("update-error", str(exc)))
+
+            threading.Thread(target=work, daemon=True).start()
+
+        win.protocol("WM_DELETE_WINDOW", close)
+
+        btns = ttk.Frame(outer)
+        btns.pack(fill="x", pady=(12, 0))
+        ttk.Button(btns, text="跳过这个版本", command=skip).pack(side="left")
+        ttk.Button(btns, text="打开 Release 页面", command=open_page).pack(
+            side="left", padx=6)
+        ttk.Button(btns, text="以后再说", command=close).pack(side="right")
+        primary_text = ("立即下载并更新" if updater.is_frozen() and st.asset is not None
+                        else "打开下载页")
+        dl_btn = ttk.Button(btns, text=primary_text, command=start_update)
+        dl_btn.pack(side="right", padx=6)
+
+    def _on_update_ready(self, payload) -> None:
+        """下载 + 解压完成：确认后拉起替换脚本并退出。"""
+        if isinstance(payload, tuple):
+            _kind, new_dir = payload
+            self.log(f"更新包已解压到 {new_dir}，但安装目录不适合自动替换")
+            if messagebox.askyesno(
+                APP_NAME,
+                "已下载并解压到：\n"
+                f"{new_dir}\n\n"
+                "当前安装目录里除了程序文件还有别的东西，自动替换会一并删掉，"
+                "所以改由你手动覆盖。\n\n现在打开该文件夹吗？",
+            ):
+                with suppress(OSError):
+                    os.startfile(str(new_dir))
+            return
+        script = payload
+        if not messagebox.askyesno(
+            APP_NAME,
+            "更新已就绪。\n\n"
+            "将关闭本程序 → 用新版本覆盖安装目录 → 自动重新打开。\n"
+            "配置、登录态与课程文件都在 %LOCALAPPDATA%，不受影响。\n\n现在更新吗？",
+        ):
+            self.log(f"更新包已就绪，未执行替换。脚本：{script}")
+            return
+        if not updater.launch_apply(script):
+            messagebox.showerror(
+                APP_NAME,
+                "无法启动更新脚本。\n请从 Release 页面下载最新 zip 手动解压覆盖。",
+            )
+            return
+        self.destroy()
 
     # ---------- 交互 ----------
 
@@ -634,6 +1126,7 @@ class App(tk.Tk):
                 self.preview.insert("end", "\n\n警告：\n" + "\n".join(res.errors))
             self._fill_counts(res)
             self._fill_todo_tree(res.drafts, status="待写入")
+            self._refresh_course_color_summary()
 
         self.bg(job, on_done=done)
 
@@ -665,6 +1158,11 @@ class App(tk.Tk):
             mode = {"swapped": "DeskBox 已重启写入", "applied": "已直接写入",
                     "queued": "待办已排队", "none": "无新增待办", "disabled": "待办功能已关闭"}
             summary += f"\n待办：{mode.get(res.todo_mode, res.todo_mode)}（新增 {len(res.todo_added)} 条）"
+            ts = res.todo_stats or {}
+            if ts.get("recolored"):
+                summary += f"，更新 {ts['recolored']} 条颜色"
+            if ts.get("resorted"):
+                summary += f"，重排 {ts['resorted']} 条"
             summary += f"\n未读通知 {len(res.unread)} 条；成绩文件 {len(res.grade_files)} 个"
             if res.ics_path:
                 summary += f"\n日历：{res.ics_path}"
@@ -680,6 +1178,7 @@ class App(tk.Tk):
             if got is not None:
                 self.notices = self._serialize_notices(got)
                 self._refresh_notice_tree()
+            self._refresh_course_color_summary()
 
         self.bg(job, on_done=done)
 
@@ -694,6 +1193,7 @@ class App(tk.Tk):
                 self.result = SimpleNamespace(drafts=drafts)
             else:
                 self.result.drafts = drafts
+            self._refresh_course_color_summary()
 
         self.bg(job, on_done=done)
 
@@ -728,10 +1228,10 @@ class App(tk.Tk):
         self.log(msg)
 
     def do_write_todos(self) -> None:
-        drafts = getattr(self.result, "drafts", None) if self.result else None
-        if not drafts:
+        if self.result is None:
             messagebox.showinfo(APP_NAME, "请先“读取截止时间”或执行同步。")
             return
+        drafts = getattr(self.result, "drafts", None) or []
         running = deskbox.is_running()
         if running and not messagebox.askyesno(
             APP_NAME,
@@ -750,6 +1250,7 @@ class App(tk.Tk):
                     prepared_count=st["total_items"], drafts=added,
                     offset_minutes=int(self.cfg["deskbox"].get("reminder_offset_minutes", 1440)),
                     progress=self._progress,
+                    cfg=self.cfg["deskbox"],
                 )
                 mode = "swapped"
             else:
@@ -771,6 +1272,10 @@ class App(tk.Tk):
                     msg += f"，{st['completed']} 项已完成未添加"
                 if st.get("deduped"):
                     msg += f"，清理重复 {st['deduped']} 条"
+                if st.get("recolored"):
+                    msg += f"，更新 {st['recolored']} 条颜色"
+                if st.get("resorted"):
+                    msg += f"，重排 {st['resorted']} 条"
                 msg += "（DeskBox 已重启）" if info["mode"] == "swapped" else "（已写入文件）"
             self.log(msg)
             messagebox.showinfo(APP_NAME, msg)
@@ -1028,7 +1533,11 @@ class App(tk.Tk):
         self.cfg["deskbox"]["todo_path"] = self.var_todo.get().strip()
         self.cfg["deskbox"]["exe_path"] = self.var_exe.get().strip()
         self.cfg["deskbox"]["fix_attachment_paths"] = self.var_fix.get()
+        self.cfg["deskbox"]["sort_by_due"] = self.var_sort.get()
+        self.cfg["deskbox"]["manual_color"] = self._color_value(self.var_manual_color.get())
         self.cfg["deskbox"]["background_policy"] = self.var_policy.get()
+        upd = self.cfg.setdefault("update", {})
+        upd["check_on_start"] = self.var_update.get()
         self.cfg["extras"]["ics"] = self.var_ics.get()
         self.cfg["extras"]["grades"] = self.var_grades.get()
         self.cfg["extras"]["notices"] = self.var_notices.get()

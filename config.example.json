@@ -33,7 +33,11 @@
     "fix_attachment_paths": true,
     "background_policy": "queue",
     "reminder_offset_minutes": 1440,
-    "remove_duplicates": true
+    "remove_duplicates": true,
+    "sort_by_due": true,
+    "course_colors": {},
+    "course_labels": {},
+    "manual_color": "pink"
   },
   "auth": {
     "popup_on_expiry": true,
@@ -51,5 +55,10 @@
     "notices": true,
     "grades": true,
     "report": true
+  },
+  "update": {
+    "check_on_start": true,
+    "interval_hours": 24,
+    "include_prerelease": false
   }
 }

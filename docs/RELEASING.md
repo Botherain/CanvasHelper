@@ -8,8 +8,8 @@
 ```powershell
 python -m ruff check canvas_helper tests scripts  # 0 错误
 python -m mypy                             # Success: no issues found
-python tests\smoke.py                      # 257 通过, 0 失败
-python -m pytest                           # 37 passed
+python tests\smoke.py                      # 335 通过, 0 失败
+python -m pytest                           # 39 passed
 ```
 
 改了 `pyproject.toml` 的 `version` 就必须同步改
@@ -22,6 +22,10 @@ CI（`lint` + `smoke` × Python 3.9/3.10/3.11/3.12/3.13/3.14）全绿后才能�
 
 - 版本号：语义化版本，改 `pyproject.toml` 与 `__init__.py` 两处。
 - `CHANGELOG.md`：把 `[未发布]` 下的内容挪进新的版本小节，补日期。
+- **`CHANGELOG` 的这一节会原样变成应用内的「更新公告」**：`release.yml` 用
+  `^## \[<version>\]` 抓出正文写成 Release body，客户端（`canvas_helper/updater.py`）
+  再把 body 显示在公告窗里。所以：写给人看、别写只有开发者懂的内部编号；
+  这一节里的 `###` / `**` 会在公告里被压成纯文本。
 
 ## 3. 转公开（public）前必须 scrub 的内容 ✅ 已执行
 
@@ -176,6 +180,8 @@ signtool verify /pa dist\CanvasHelper\CanvasHelper.exe
 - [ ] `pyproject.toml` 与 `__version__` 一致
 - [ ] `CHANGELOG.md` 的 `[未发布]` 挪进新小节并写日期
 - [ ] 打标签 `git tag vX.Y.Z && git push origin vX.Y.Z`（自动出包并发布 Release）
+- [ ] 发布后跑一次 `python -m canvas_helper update --brief`：确认应用内能看到这条版本
+      与公告（它读的就是刚发的 Release；`--download` 可顺带验证下载包与 sha256）
 - [ ] 下载 Release 里的 exe 包，在**没装 Python** 的机器上跑一遍 GUI + 同步
 - [ ] `python -m build` 出包并**本地试装**一次
 - [ ] （转公开时）完成第 3 节 scrub 并重新截图

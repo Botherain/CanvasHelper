@@ -16,8 +16,8 @@
 
 - [项目介绍](#项目介绍) — 它解决什么问题、功能一览、跨院校通用、安全与隐私
 - [快速开始](#快速开始) — 从零到可用的五步
-- [详细使用教程](#详细使用教程) — 界面导览、归档规则、接口降级、清理缓存、命令行、设置项、开发者参考
-- [相关项目：DeskBox](#相关项目deskbox) — DeskBox 是什么、两者的关系、待办写入策略
+- [详细使用教程](#详细使用教程) — 界面导览、归档规则、接口降级、清理缓存、检查更新、命令行、设置项、开发者参考
+- [相关项目：DeskBox](#相关项目deskbox) — DeskBox 是什么、两者的关系、待办写入策略、待办排序与课程颜色
 - [常见问题与解答](#常见问题与解答) — 学校不在清单、时区偏差、登录过期、重复待办、磁盘占用等
 - [免责声明](#免责声明)
 
@@ -48,6 +48,7 @@
 | 每周摘要 | 每周生成 `本周摘要-YYYY-Wnn.md` 到各课程文件夹 |
 | 缓存清理 | **一键清理**下载状态、已读标记、导出日历、日志、浏览器缓存（默认不动登录态） |
 | 完成去重 | 已完成的作业**不会**再次写入；同名同截止的重复条目在写入时自动清理 |
+| 版本更新 | 自动查 GitHub Releases：顶栏提示新版本、弹窗展示落后期间**全部**版本的更新公告，exe 版可一键下载替换并重启；离线静默跳过 |
 
 ### 跨院校通用
 
@@ -90,7 +91,7 @@ Canvas 在全球有数千所院校在用，站点地址五花八门（`canvas.<�
 
 ### 安全与隐私
 
-- **联网范围很窄**：只访问你在配置里填写的 Canvas 站点、完成登录所需的 SSO 域名（由学校登录流程决定，如 `sso.canvaslms.com`），以及在线更新院校清单时的 Canvas 官方目录接口。**不连任何其他第三方服务器**；无遥测、无统计、无任何数据上报。
+- **联网范围很窄**：只访问你在配置里填写的 Canvas 站点、完成登录所需的 SSO 域名（由学校登录流程决定，如 `sso.canvaslms.com`）、在线更新院校清单时的 Canvas 官方目录接口，以及检查 / 下载新版本时的 GitHub（`api.github.com` / `github.com`，只发 GET、不带本地数据；可用 `update.check_on_start=false` 关掉）。**不连任何其他第三方服务器**；无遥测、无统计、无任何数据上报。
 - **数据只在本机**：配置、同步状态、日志、登录态全在 `%LOCALAPPDATA%\CanvasHelper\`（见 [数据目录](#数据目录)），课程文件落在你自己的课程根目录。这些目录都在仓库之外；`config.json` / `state.json` / `sync.log` 等可再生文件以及 `session.json` / `profile\` 还额外进了 `.gitignore`，双保险不会被提交。
 - **登录态 = 凭据**：学校 Cookie 存在 `session.json` 与浏览器 `profile\` 目录，**不要发给别人、不要连同打包分享**；`canvas-helper clean --login` 可连登录态一起清掉。
 - **日志不记凭据内容**：`sync.log` 只记录 cookie 条数与出错信息，不写 cookie / 密码的值；日志自动轮转（1 MB x 3 备份），不想留痕就用设置页「一键清理缓存」清掉。
@@ -154,9 +155,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make_shortcut.ps1
 ```
 %LOCALAPPDATA%\CanvasHelper\
 ├─ config.json               配置（首次运行自动生成）
-├─ state.json                同步状态（已下载文件、已读通知、已完成待办）
+├─ state.json                同步状态（已下载文件、已读通知、已完成待办、更新公告已读/已跳过）
 ├─ sync.log                  日志（自动轮转，1 MB x 3 备份）
 ├─ schools_cache.json        院校清单的在线缓存
+├─ update_cache.json         上次检查到的新版本与公告（可离线查看）
+├─ updates\                  更新包下载 / 解压 / 替换脚本（可随时清掉）
 ├─ pending_todos.json        后台排队的待办
 ├─ canvas-deadlines.ics      导出的截止日历
 ├─ session.json              Canvas 登录 cookie
@@ -255,9 +258,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make_shortcut.ps1
 | 浏览器缓存 | 勾 | `Default/Cache`、`ShaderCache` 等 14 个缓存目录，**不含 Cookie，登录态仍然有效** |
 | 后台排队待办 | 不勾 | 会丢掉还没写入 DeskBox 的截止提醒，需要手动勾选 |
 | DeskBox 重复待办 | 不勾 | 删除重复条目并重启 DeskBox，需要手动勾选 |
+| 已下载的更新包 | 勾 | `updates/` 里下载的 zip 与解压结果（几十上百 MB），需要时重新下载 |
 | 登录态 | 不勾 | `session.json` + 浏览器 Cookie，勾了就得重新登录 |
 
 浏览器缓存按**目录名**匹配，`Cookies` / `Login Data` / `Local State` / `Local Storage` 等永远不在清理范围内（自检里有对应断言）。
+
+### 检查更新与更新公告
+
+程序会自己看 GitHub Releases 上有没有新版本，**发现新版就在顶栏挂一条提示**，点开是一份「这段时间新增了什么」的公告——不是一句干巴巴的「发现新版本」。
+
+- **什么时候查**：打开 GUI 时后台查一次、每日后台同步顺手再查一次；两次真正联网之间至少隔 24 小时（`update.interval_hours`，设 0 表示每次启动都查）。也可随时手动点设置页「检查更新」（绕过节流）。
+- **提示长什么样**：顶栏登录状态右侧出现 `⬆ 新版本 vX 可用，点此查看`（蓝色可点）。第一次发现时会自动弹公告窗，看过后只留横幅；点「跳过这个版本」则这个版本彻底不再提示（有更新的版本时还会出现）。
+- **公告内容哪来的**：发版时 `.github/workflows/release.yml` 会把 `CHANGELOG.md` 对应版本的小节写成 Release 正文，所以公告 = CHANGELOG。**落后好几个版本时会一次列出所有中间版本**（新→旧，最多 10 个）。
+- **一键更新（exe 版）**：公告窗里点「立即下载并更新」→ 下载 win64 zip（有 `sha256` 就校验）→ 解压到 `%LOCALAPPDATA%\CanvasHelper\updates\` → 生成一个替换脚本 → 关掉程序 → 覆盖安装目录 → 自动重新打开。数据全在 `%LOCALAPPDATA%`，不受影响。
+- **什么时候不自动替换**（只打开下载页，由你手动覆盖）：源码运行（`python -m canvas_helper`）、这个版本没有 Windows 包、或者安装目录里除了 `CanvasHelper.exe` 与 `_internal` 还有别的东西（防止镜像替换删掉你自己的文件）。替换失败时 zip 与解压结果都会留在 `updates\`，可手动覆盖或从下载页重来。
+- **离线不打扰**：查不到就静默跳过（日志一行），失败也会记下「尝试时间」，不会每次启动都白等超时；上次查到的公告仍能离线查看。更新检查**永远不影响**同步的退出码。
 
 ### 命令行
 
@@ -277,6 +292,9 @@ python -m canvas_helper clean --login      # 连登录态一起清（之后需�
 python -m canvas_helper tidy               # 预览讲义整理方案（不写盘）
 python -m canvas_helper tidy --apply       # 确认后执行：散件移进章节目录
 python -m canvas_helper install-browser    # 下载 Chromium（系统没有 Edge 时才需要）
+python -m canvas_helper update             # 检查新版本并显示更新公告
+python -m canvas_helper update --download  # 顺手把 win64 zip 下到数据目录
+python -m canvas_helper update --brief     # 只打一行；有新版本时退出码 3
 python -m canvas_helper --selftest         # 自检：确认所有子模块都在（排查坏包用）
 python -m canvas_helper --version          # 版本号
 ```
@@ -297,11 +315,18 @@ python -m canvas_helper --version          # 版本号
 | `deskbox.enabled` / `todo_path` / `exe_path` | `true` / 自动发现 | DeskBox 相关路径，自动扫描 `%LOCALAPPDATA%\DeskBox\data\widgets\*\todo.json` |
 | `deskbox.background_policy` | `queue` | 后台同步时如何处理运行中的 DeskBox：`queue` / `restart` / `skip` |
 | `deskbox.reminder_offset_minutes` | `1440` | 提前提醒分钟数 |
+| `deskbox.sort_by_due` | `true` | 写入时按截止时间重排全部待办（见 [待办排序与课程颜色](#待办排序与课程颜色)） |
+| `deskbox.course_colors` | 自动生成 | 课程 id -> DeskBox 颜色名；首次识别课程时按选课顺序分配，设置页可改 |
+| `deskbox.course_labels` | 自动生成 | 课程 id -> 显示名，只给设置页用，不参与配色逻辑 |
+| `deskbox.manual_color` | `pink` | 自建待办（Canvas 认不出的条目）用哪种颜色；留空 = 不改它们的颜色 |
 | `extras.ics` / `notices` / `grades` / `report` | `true` | 四个附加功能的开关 |
 | `schedule.enabled` / `sync_time` | `false` / `08:30` | 每日自动同步 |
 | `schedule.report_enabled` / `report_weekday` / `report_time` | `true` / `MON` / `09:00` | 每周摘要 |
 | `auth.popup_on_expiry` | `true` | 后台过期时是否弹窗自愈；设为 `false` 则只记标记，绝不打扰无人值守的机器 |
 | `auth.popup_timeout_s` | `180` | 弹窗等待秒数，下限 10 秒 |
+| `update.check_on_start` | `true` | 启动 GUI / 后台同步时自动检查新版本；关掉则只在设置页或命令行手动查 |
+| `update.interval_hours` | `24` | 两次真正联网检查的最小间隔（小时）；`0` = 每次启动都查 |
+| `update.include_prerelease` | `false` | 是否把 GitHub 上标了 prerelease 的版本也算作可用更新 |
 
 完整模板见 [`config.example.json`](config.example.json)，实际配置在 `%LOCALAPPDATA%\CanvasHelper\config.json`（首次运行自动生成，不入库）。
 
@@ -427,6 +452,19 @@ python -m pytest -k test_7      # 只跑「附加功能」，它依赖的 [5] �
 
 进程探测用 ctypes Toolhelp32 快照在进程内完成，**不 spawn 子进程**——GUI 每 4 秒刷新一次 DeskBox 运行状态也不会产生进程创建开销或控制台黑框。
 
+### 待办排序与课程颜色
+
+写入 `todo.json` 时，除了合并新条目，还会**顺带整理已有的全部待办**——所以第一次升级后点一次「写入 DeskBox」或跑一次同步，历史待办也会一起变整齐：
+
+- **按截止时间排序**（`deskbox.sort_by_due`，默认开）：待办按 `dueDate` 升序重写 `sortOrder`，没有截止时间的排最后；截止时间相同则保留你在 DeskBox 里手动排好的相对顺序。已完成的条目仍由 DeskBox 排到列表末尾。
+- **按课程配色**：同一门课的所有待办用同一种颜色，一眼能看出这周哪门课最忙。颜色来自本地快照 `deskbox.course_colors`（课程 id -> 颜色），**按选课顺序首次分配**：`red`、`orange`、`yellow`、`green`、`blue`、`purple`、`teal`，课程多到调色板用完才循环。之后新识别到的课程只补没人用的颜色，**你在设置页改过的映射不会被覆盖**。
+- **自建待办单独一色**：Canvas 认不出的条目（自己手写的「整理每周课程文件」之类）统一用 `deskbox.manual_color`，默认 `pink`——它不参与课程分配，课程永远不会跟它撞色。填成空字符串则不改这些条目的颜色。
+- **怎么认出是哪门课**：优先看 notes 里的 Canvas 原链接 `/courses/<课程 id>/...`；老条目没有链接时用标题开头的课程代码兜底（`CS5187 · Assignment 2`、`CS5489-Assignment1` 都认）。两者都对不上、也不像课程待办的，才当成自建待办。看起来像课程（有课程代码）但本地没有对应颜色的条目**保持原样**，不会被误标成自建。
+
+设置页「待办外观」里可以改：排序开关、自建待办颜色、以及「编辑课程颜色…」（逐门课选颜色，或一键「按选课顺序重新分配」）。课程名来自 `deskbox.course_labels`，只用于界面显示；没同步过课程时，先点一次「读取截止时间」也能编辑。
+
+无新增待办、纯粹只是顺序或颜色需要更新时，同样会写盘（`changed` 由改动条数决定），不会出现「点了写入却什么都没发生」。
+
 ### 已完成作业的处理
 
 **问题**：某项作业已经在 DeskBox 里勾了完成，下一次同步 / 一键写入时又把它加进来了怎么办？
@@ -488,7 +526,15 @@ A：换学校：点「选择院校」重新选一所，登录一次即可；已�
 
 **Q：会连第三方服务器吗？会不会上传我的数据？**
 
-A：只连三类地址：你配置的 Canvas 站点、完成登录所需的学校 SSO 域名、以及在线更新院校清单时的 Canvas 官方目录接口。无遥测、无统计、无任何数据上报；所有数据只在本机。
+A：只连四类地址：你配置的 Canvas 站点、完成登录所需的学校 SSO 域名、在线更新院校清单时的 Canvas 官方目录接口、以及检查/下载新版本时的 GitHub（`api.github.com` / `github.com`，只发 GET，不带任何本地数据）。无遥测、无统计、无任何数据上报；所有数据只在本机。
+
+**Q：更新检查会不会天天联网？能关掉吗？**
+
+A：默认「启动 GUI 时查一次 + 每日后台同步顺手查一次」，但两次真正联网之间至少隔 24 小时（`update.interval_hours`），所以平均每天最多一次、单次一个 GET 请求。不想让它联网：设置页取消「启动时自动检查更新」（或 `update.check_on_start = false`），之后只有你手动点「检查更新」或运行 `python -m canvas_helper update` 才会查。离线时一律静默跳过，只是日志里多一行。
+
+**Q：新版本提示了，但点「立即下载并更新」没反应 / 更新完打不开？**
+
+A：先看两种情况：①**源码运行**（`python -m canvas_helper`）不会自我替换，按钮会变成「打开下载页」，请 `git pull` + `pip install .` 或用 Release 页的 wheel；②安装目录里除了 `CanvasHelper.exe` 与 `_internal` 还有别的东西时也不会自动替换（镜像覆盖会删掉你的文件），程序会打开解压好的新版本目录让你手动覆盖。自动替换失败时 zip 与解压结果都留在 `%LOCALAPPDATA%\CanvasHelper\updates\`，把里面的 `CanvasHelper\` 覆盖到安装目录即可；实在不行从 [Releases](https://github.com/Botherain/CanvasHelper/releases) 重新下 zip。想彻底不再提示某个版本，点公告窗里的「跳过这个版本」。
 
 **Q：清空数据目录会怎样？**
 

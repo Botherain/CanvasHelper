@@ -13,7 +13,7 @@ from .paths import ensure_dirs, get_logger
 _SUBMODULES = (
     "auth", "canvas_api", "classify", "cleaner", "coursecode", "deskbox",
     "extract", "extras", "filesync", "gui", "paths", "runner", "scheduler",
-    "schoollist", "schoolpicker", "schools", "tidy",
+    "schoollist", "schoolpicker", "schools", "tidy", "updater",
 )
 
 
@@ -69,6 +69,19 @@ def main(argv: list[str] | None = None) -> int:
         res = run_sync(headless=headless,
                        progress=log.info)
         log.info("同步统计: %s", res.stats)
+        # 后台（计划任务）同步顺手查一次更新：只写缓存 + 日志，不弹窗、不影响
+        # 退出码。GUI 下次打开就能直接在顶栏看到「新版本可用」。
+        from . import __version__ as _ver
+        from .paths import load_config
+        from .updater import maybe_check
+
+        try:
+            st = maybe_check(load_config())
+            if st is not None and st.ok and st.has_update:
+                log.info("发现新版本 v%s（当前 v%s），打开 GUI 可看更新公告",
+                         st.latest, _ver)
+        except Exception as exc:  # 更新检查永远不许影响同步的退出码
+            log.info("更新检查跳过：%s", exc)
         if getattr(res, "auth_required", False):
             # 退出码 2 专门表示「登录过期」，与一般的 1（其他错误）区分开
             log.error("登录已过期：本次后台同步未执行。"
@@ -164,10 +177,9 @@ def main(argv: list[str] | None = None) -> int:
             keys.add("pending")
         if "--todos" in argv:
             keys.add("todos")
-        if "--all" in argv:
-            keys |= {"state", "ics", "log", "browser"}
-        else:
-            keys |= {"state", "ics", "log", "browser"}
+        # 默认清理「可再生」的那几项；`--all` 历史上与本默认集合相同，不用另写分支。
+        # 登录态 / 排队待办 / 重复待办都要显式加开关。
+        keys |= {"state", "ics", "log", "browser", "updates"}
         if "--dry" in argv:
             for t in cleaner.scan():
                 mark = "*" if t.default or t.key in keys else " "
@@ -210,8 +222,64 @@ def main(argv: list[str] | None = None) -> int:
         log.error("Chromium 下载失败。也可以直接装 Microsoft Edge，程序会优先用它")
         return 1
 
+    if cmd == "update":
+        from . import __version__ as _ver
+        from . import updater
+
+        brief = "--brief" in argv
+        prerelease = "--prerelease" in argv
+        st = updater.check(include_prerelease=prerelease)
+        if not st.ok:
+            log.error("检查更新失败：%s", st.error or "未知原因")
+            return 1
+        if not st.has_update:
+            if brief:
+                print(f"v{_ver} 已是最新")
+            else:
+                when = (st.checked_at or "")[:16].replace("T", " ")
+                print(f"当前版本 v{_ver}，已是最新（v{st.latest}，检查于 {when}）")
+            return 0
+        if brief:
+            print(f"发现新版本 v{st.latest}（当前 v{_ver}，落后 {st.behind} 个版本）")
+            return 3
+        print(f"当前版本 v{_ver} → 最新 v{st.latest}（落后 {st.behind} 个版本）")
+        print()
+        print(st.notes_text)
+        print()
+        asset = st.asset
+        if asset is not None:
+            print(f"下载包：{asset.name}（{asset.size / 1048576.0:.1f} MB）")
+        if "--download" in argv:
+            if asset is None:
+                log.error("这个版本没有 Windows 压缩包，请到下载页手动选择")
+                print(f"下载页：{updater.RELEASES_PAGE}")
+                return 1
+            marks = [-1]
+
+            def report(got: int, total: int) -> None:
+                pct = int(got * 100 / total) if total else 0
+                if pct // 5 != marks[0]:
+                    marks[0] = pct // 5
+                    print(f"\r下载中 {pct:3d}%  {got / 1048576.0:.1f} MB",
+                          end="", flush=True)
+
+            try:
+                path = updater.download(asset, progress=report)
+            except Exception as exc:
+                print()
+                log.error("下载失败：%s", exc)
+                return 1
+            print()
+            print(f"已下载到 {path}")
+            print("exe 版可直接在设置页点「立即下载并更新」完成替换；"
+                  "源码版解压后用 pip install . 覆盖安装。")
+        else:
+            print(f"下载页：{updater.RELEASES_PAGE}")
+            print("（加 --download 可直接下载 win64 zip；--brief 只打一行）")
+        return 3
+
     print("用法: python -m canvas_helper "
-          "[gui|sync|report|flush|clean|tidy|login|courses|schools|install-browser] "
+          "[gui|sync|report|flush|clean|tidy|login|courses|schools|update|install-browser] "
           "[--headless] [--version]")
     print("  gui      启动图形界面（默认）")
     print("  sync     立即同步课程文件与待办")
@@ -222,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
     print("  login    交互式登录并保存会话")
     print("  courses  列出已识别课程")
     print("  schools  列出 Canvas 院校清单（--update 在线更新；可带关键词过滤）")
+    print("  update   检查新版本并显示更新公告（--download 直接下载 win64 zip；"
+          "--brief 只打一行、有新版本退出码 3）")
     print("  install-browser  下载 Playwright 自带的 Chromium（没有 Edge 时才需要）")
     return 2
 

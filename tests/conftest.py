@@ -26,7 +26,8 @@ from tests import smoke  # noqa: E402
 @pytest.fixture(autouse=True)
 def preserve_side_effects() -> object:
     """备份真实数据文件，跑完原样还原（含「原本不存在」这种情形）。"""
-    watched = (paths.STATE_PATH, paths.PENDING_PATH, paths.CONFIG_PATH, paths.ICS_PATH)
+    watched = (paths.STATE_PATH, paths.PENDING_PATH, paths.CONFIG_PATH, paths.ICS_PATH,
+               paths.UPDATE_CACHE_PATH)
     saved = {p: (p.read_bytes() if p.exists() else None) for p in watched}
     yield
     for p, data in saved.items():

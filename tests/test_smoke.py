@@ -47,6 +47,10 @@ def test_5c_一键清理缓存() -> None:
     _run("[5c] 一键清理缓存", smoke.s5c_cleaner)
 
 
+def test_5d_待办排序与课程颜色() -> None:
+    _run("[5d] 待办排序与课程颜色", smoke.s5d_sort_and_color)
+
+
 def test_6_下载计划() -> None:
     _run("[6] 下载计划（dry-run）", smoke.s6_plan)
 
@@ -94,3 +98,7 @@ def test_14_院校清单与地址归一化() -> None:
 
 def test_15_院校清单在线更新与缓存() -> None:
     _run("[15] 院校清单在线更新与缓存", smoke.s15_schoollist)
+
+
+def test_16_版本校验与更新公告() -> None:
+    _run("[16] 版本校验与更新公告", smoke.s16_update)

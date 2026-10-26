@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "canvas-helper"
 # 与 canvas_helper/__init__.py 的 __version__ 保持一致（自检 [9] 会断言）
-version = "1.2.1"
+version = "1.3.0"
 description = "Canvas 课程内容同步与学习辅助：按既有目录规则归档课程文件，把截止时间写入 DeskBox 待办"
 readme = "README.md"
 license = "MIT"

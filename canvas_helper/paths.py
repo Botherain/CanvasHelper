@@ -34,6 +34,10 @@ PENDING_PATH = DATA_DIR / "pending_todos.json"
 ICS_PATH = DATA_DIR / "canvas-deadlines.ics"
 PROFILE_DIR = DATA_DIR / "profile"
 SESSION_PATH = DATA_DIR / "session.json"
+#: 更新检查结果的缓存（含公告正文），与 state.json 分开：清理下载状态时不必重拉
+UPDATE_CACHE_PATH = DATA_DIR / "update_cache.json"
+#: 更新包下载 / 解压 / 替换脚本的落地目录（体积可达上百 MB，可随时重下）
+UPDATES_DIR = DATA_DIR / "updates"
 
 # 旧版本（v1.0 之前）把可写数据放在源码目录下，启动时自动搬一次
 _LEGACY_FILES = ("config.json", "state.json", "pending_todos.json", "canvas-deadlines.ics")
@@ -132,6 +136,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "reminder_offset_minutes": 1440,
         # 写入时是否清理「已完成条目」的未完成重复项
         "remove_duplicates": True,
+        # 写入时是否按截止时间重排 todo.json（DeskBox 按 sortOrder 显示）
+        "sort_by_due": True,
+        # 课程 id -> DeskBox 颜色；首次识别课程时按选课顺序自动分配
+        "course_colors": {},
+        # 课程 id -> 课程显示名；只给设置页显示用，不参与配色逻辑
+        "course_labels": {},
+        # 自建待办使用的额外颜色；空字符串表示不改它们的颜色
+        "manual_color": "pink",
     },
     "schedule": {
         "enabled": False,
@@ -154,6 +166,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # 弹窗等待秒数，超时自动关闭并记为待重新登录
         "popup_timeout_s": 180,
     },
+    # 版本校验与更新公告（数据源是 GitHub Releases，失败一律静默降级）
+    "update": {
+        # 启动 GUI / 后台同步时自动检查一次；关掉就只在设置页或命令行手动查
+        "check_on_start": True,
+        # 两次真正联网检查的最小间隔（小时）；0 = 每次启动都查
+        "interval_hours": 24,
+        # 是否把 GitHub 上标了 prerelease 的版本也算作可用更新
+        "include_prerelease": False,
+    },
 }
 
 _logger: logging.Logger | None = None
@@ -163,6 +184,8 @@ _DEFAULT_STATE: dict[str, Any] = {
     "todo_done": {},
     "notices": {},
     "last_sync": None,
+    # 更新公告的已读 / 已跳过版本号（"1.4.0" 形式）；与网络缓存无关
+    "update": {},
 }
 
 
