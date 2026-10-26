@@ -67,9 +67,10 @@ DEFAULT_INTERVAL_HOURS = 24.0
 MAX_RELEASES_KEPT = 10
 #: 公告里最多展示多少个版本（落后很多版本时不必滚一万行）
 MAX_NOTES_SHOWN = 10
-#: 允许被 /MIR 覆盖的顶层条目：单目录构建只有 exe 与 _internal。
-#: 装到自己的文件夹里（旁边还放着别的文件）时**不自动替换**，免得删掉用户资料。
-_ALLOWED_TOP = {"canvashelper.exe", "_internal"}
+#: 单目录构建里唯一允许的「非 exe」顶层条目。其它任何东西都会在镜像替换时被删掉，
+#: 所以见到就拒绝自动替换（把住用户资料）。
+#: 注意：exe 的文件名**不写死**——2.0.0 会把 CanvasHelper.exe 改名成 Inferry.exe。
+_INTERNAL_DIR = "_internal"
 
 _USER_AGENT = f"CanvasHelper/{__version__} (+https://github.com/{REPO})"
 
@@ -620,12 +621,21 @@ def _safe_extract(archive: zipfile.ZipFile, dest: Path) -> None:
 
 
 def find_exe(root: Path) -> Path | None:
-    """在解压结果里找 ``CanvasHelper.exe``（取层级最浅的那个）。"""
+    """在解压结果里找主程序 exe，返回层级最浅、体积最大的那个。
+
+    刻意**不写死文件名**：2.0.0 会把 ``CanvasHelper.exe`` 改名成 ``Inferry.exe``，
+    如果这里只认旧名字，改名后的第一个版本会被判成「更新包里没有 exe」而退回
+    手动更新；更糟的是替换脚本会把「旧名字」当成重启目标，覆盖完就再也起不来。
+    """
     try:
-        found = sorted(root.rglob("CanvasHelper.exe"), key=lambda p: len(p.parts))
+        candidates = [p for p in root.rglob("*.exe") if p.is_file()]
     except OSError:
         return None
-    return found[0] if found else None
+    if not candidates:
+        return None
+    # 先按层级（越浅越像主程序），再按体积（主 exe 通常几 MB，辅助工具很小）
+    candidates.sort(key=lambda p: (len(p.parts), -p.stat().st_size))
+    return candidates[0]
 
 
 def stage(zip_path: Path, version: str = "") -> Path:
@@ -666,24 +676,39 @@ def is_writable(directory: Path) -> bool:
     return True
 
 
+def _program_exes(directory: Path) -> list[Path]:
+    """目录顶层的 exe（忽略隐藏文件与目录）。"""
+    try:
+        return sorted(p for p in directory.iterdir()
+                      if p.is_file() and p.suffix.lower() == ".exe"
+                      and not p.name.startswith("."))
+    except OSError:
+        return []
+
+
 def why_not_replace(old_dir: Path) -> str:
     """不能自动替换的原因；空串表示可以。
 
     比 :func:`safe_to_replace` 多给出「为什么」——用户把程序解压进
     ``C:\\Program Files`` 时，笼统一句「不能自动更新」根本没法自救。
+
+    判断**不写死 exe 文件名**（2.0.0 会把 ``CanvasHelper.exe`` 改成
+    ``Inferry.exe``）：只要顶层是「若干 exe + ``_internal``」就认，多出任何别的
+    东西才拒绝——镜像替换会删掉多出来的文件，这是唯一需要把住的地方。
     """
     old = Path(old_dir)
-    if not (old / "CanvasHelper.exe").is_file():
-        return "安装目录里没有 CanvasHelper.exe"
+    if not _program_exes(old):
+        return "安装目录里没有程序 exe"
     if old.parent == old:  # 盘符根
         return "安装目录是盘符根目录，不安全"
     if old.resolve() == Path.home().resolve():
         return "安装目录是用户主目录，不安全"
     try:
-        top = {p.name.lower() for p in old.iterdir() if not p.name.startswith(".")}
+        top = [p for p in old.iterdir() if not p.name.startswith(".")]
     except OSError as exc:
         return f"读不了安装目录：{exc}"
-    extra = sorted(top - _ALLOWED_TOP)
+    extra = sorted(p.name for p in top
+                   if p.name.lower() != _INTERNAL_DIR and p.suffix.lower() != ".exe")
     if extra:
         shown = "、".join(extra[:3]) + ("…" if len(extra) > 3 else "")
         return f"安装目录里除了程序文件还有：{shown}（自动替换会删掉它们）"
@@ -713,11 +738,17 @@ def _ps_quote(text: str | Path) -> str:
 _APPLY_SCRIPT = """\
 # CanvasHelper 自动更新脚本（由程序生成，替换完成后可删除）
 # 做的事：等旧进程退出 -> 用新版本镜像覆盖安装目录 -> 重新打开
+#
+# 关于 exe 文件名：2.0.0 起主程序会从 CanvasHelper.exe 改名成 Inferry.exe，
+# 所以「重启哪个文件」必须在生成脚本时按**新版本**里的实际文件名算好，
+# 不能沿用旧名字——否则镜像替换会删掉旧 exe，脚本再去启动它，用户就再也打不开。
 $ErrorActionPreference = 'Continue'
 $waitPid = {pid}
 $old = {old}
 $new = {new}
-$exe = {exe}
+$start = {start}
+$fallback = {fallback}
+$newExe = {new_exe}
 $log = {log}
 
 function Write-Log([string]$text) {{
@@ -728,13 +759,13 @@ Write-Log "等待进程 $waitPid 退出"
 try {{ Wait-Process -Id $waitPid -Timeout 120 -ErrorAction Stop }} catch {{}}
 Start-Sleep -Milliseconds 800
 
-if (-not (Test-Path (Join-Path $old 'CanvasHelper.exe'))) {{
-    Write-Log "旧目录里没有 CanvasHelper.exe，放弃替换：$old"
+if (-not (Test-Path -LiteralPath $old)) {{
+    Write-Log "旧目录不存在，放弃替换：$old"
     exit 2
 }}
-if (-not (Test-Path (Join-Path $new 'CanvasHelper.exe'))) {{
-    Write-Log "新版本目录里没有 CanvasHelper.exe，放弃替换：$new"
-    Start-Process -FilePath $exe
+if (-not (Test-Path -LiteralPath $newExe)) {{
+    Write-Log "新版本目录里没有 exe，放弃替换：$newExe"
+    if (Test-Path -LiteralPath $fallback) {{ Start-Process -FilePath $fallback }}
     exit 3
 }}
 
@@ -743,12 +774,18 @@ robocopy $new $old /MIR /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
 $code = $LASTEXITCODE
 Write-Log "robocopy 退出码 $code"
 
-if ($code -ge 8) {{
-    Write-Log "替换失败，保留新版本目录供手动处理：$new"
+# 优先启动「新版本里的那个文件名」（替换完成后它就在旧目录里）；
+# 万一没出现（镜像失败/被杀软拦），退回原来的启动文件，别把程序留在关闭状态。
+if (Test-Path -LiteralPath $start) {{
+    Write-Log "启动 $start"
+    Start-Process -FilePath $start
+}} elseif (Test-Path -LiteralPath $fallback) {{
+    Write-Log "新主程序未出现，退回启动 $fallback"
+    Start-Process -FilePath $fallback
 }} else {{
-    Write-Log "替换完成，正在重启"
+    Write-Log "新旧主程序都不存在，请手动解压 $new"
+    exit 4
 }}
-Start-Process -FilePath $exe
 exit $code
 """
 
@@ -773,19 +810,35 @@ def write_apply_script(
 
     用 PowerShell 而不是 .cmd：批处理按 OEM 代码页读取，路径里带中文时容易
     变乱码；PowerShell 脚本可以带 BOM 存 UTF-8，中文路径也稳。
+
+    ``exe_path`` 传的是「当前正在运行的 exe」（旧名字）；脚本会按**新版本目录里
+    找到的 exe 文件名**去重启（``old_dir`` 下同名文件），旧名字只作兜底。这样
+    跨版本改名（CanvasHelper.exe -> Inferry.exe）时一键更新不会把程序弄丢。
     """
-    exe = Path(exe_path) if exe_path else Path(old_dir) / "CanvasHelper.exe"
+    old = Path(old_dir)
+    new = Path(new_dir)
+    new_exe = find_exe(new)
+    if exe_path is not None:
+        fallback = Path(exe_path)
+    elif is_frozen():
+        # 正在运行的就是「旧名字」那个 exe（换名后是 Inferry.exe，之前是 CanvasHelper.exe）
+        fallback = Path(sys.executable)
+    else:
+        fallback = old / "CanvasHelper.exe"
+    start = old / (new_exe.name if new_exe is not None else fallback.name)
     target = Path(script_path) if script_path else apply_script_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     text = _APPLY_SCRIPT.format(
         pid=int(pid),
-        old=_ps_quote(Path(old_dir)),
-        new=_ps_quote(Path(new_dir)),
-        exe=_ps_quote(exe),
+        old=_ps_quote(old),
+        new=_ps_quote(new),
+        start=_ps_quote(start),
+        fallback=_ps_quote(fallback),
+        new_exe=_ps_quote(new_exe or (new / fallback.name)),
         log=_ps_quote(apply_log_path()),
     )
     target.write_text(text, encoding="utf-8-sig")
-    log.info("更新脚本已生成：%s", target)
+    log.info("更新脚本已生成：%s（重启目标 %s）", target, start.name)
     return target
 
 

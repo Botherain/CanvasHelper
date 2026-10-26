@@ -8,7 +8,7 @@
 ```powershell
 python -m ruff check canvas_helper tests scripts  # 0 错误
 python -m mypy                             # Success: no issues found
-python tests\smoke.py                      # 378 通过, 0 失败
+python tests\smoke.py                      # 384 通过, 0 失败
 python -m pytest                           # 40 passed
 ```
 
@@ -199,3 +199,24 @@ signtool verify /pa dist\CanvasHelper\CanvasHelper.exe
 - [ ] （转公开时）完成第 3 节 scrub 并重新截图
 - [ ] 签名：按 [`SIGNING.md`](SIGNING.md) 申请（SignPath Foundation 免费 / Certum ≈€49 年），
       通过后在 `release.yml` 的「打 zip」之前插入签名步骤
+
+## 7. 产品改名（2.0.0）要动的地方
+
+改名不只是换 README 标题。按顺序过一遍，漏一条就会出现「老用户更新后配置丢了 / 每日同步静默失效」：
+
+1. **`canvas_helper/` 包名与模块导入**（可选但推荐）：`git mv` + 全局替换 import，
+   `CanvasHelper.spec` 的 `pathex`/入口、`pyproject` 的 `[project.scripts]` 一起改；
+2. **`APP_NAME`、窗口标题、`docs/icons/*`、exe 名**：`CanvasHelper.spec` 里
+   `name='Inferry'`；`release.yml` 的 zip 文件名硬编码了 `CanvasHelper-` 前缀，记得改；
+3. **数据目录**：`paths.DATA_DIR` 换名，并在 `_bootstrap()` 里加一次性迁移
+   （旧目录存在且新目录不存在 → `shutil.move`），否则老用户等于重装（要重新登录、丢配色）；
+4. **计划任务**：`scheduler.TASK_SYNC`/`TASK_REPORT` 换名，并在启动时**删除旧任务名**
+   （`schtasks /Delete /TN CanvasHelper-DailySync`），再按新名重建；
+5. **`updater.REPO`**：GitHub 仓库改名后旧地址会自动重定向，老版本不会断更；新版本记得改；
+6. **快捷方式**：`shortcut.LNK_NAME` 换名；老用户桌面上指向旧 exe 的 `.lnk` 会失效，
+   可在新版本首次启动时提示「重新创建快捷方式」；
+7. **文档与元数据**：README、CHANGELOG、`docs/SIGNING.md` 的申请文案、issue 模板、
+   `pyproject` 的 name/URLs、README 徽章；
+8. **版本号**：改名属于不兼容变更，用 **2.0.0**；`CHANGELOG` 里写清「数据目录已迁移、
+   旧任务已清理」，并在升级说明里提醒用户**先升到 1.3.3**（跨改名的一键更新依赖它修好的
+   重启逻辑），再点 2.0.0 的更新。

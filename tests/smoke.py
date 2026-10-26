@@ -1603,7 +1603,9 @@ def s16_update() -> None:
         check("脚本等待旧进程退出",
               "$waitPid = 4321" in text and "Wait-Process -Id $waitPid" in text, text[:160])
         check("脚本镜像替换", "robocopy" in text.lower() and "/MIR" in text)
-        check("脚本替换完重启", "Start-Process" in text and "CanvasHelper.exe" in text)
+        check("脚本按新版本里的 exe 名重启",
+              f"$start = '{app / 'CanvasHelper.exe'}'" in text
+              and "Start-Process -FilePath $start" in text, text[:300])
         check("脚本里的路径带引号（中文路径也安全）", f"'{app}'" in text, text[:160])
 
         # --- 一键清理能看到并删掉更新包 ---
@@ -1704,7 +1706,7 @@ def s17_install_ux() -> None:
         check("标准安装目录可以自动替换", updater.why_not_replace(app) == "",
               updater.why_not_replace(app))
         check("目录里没有 exe 时说明原因",
-              "没有 CanvasHelper.exe" in updater.why_not_replace(tmp2),
+              "没有程序 exe" in updater.why_not_replace(tmp2),
               updater.why_not_replace(tmp2))
         (app / "我的笔记.txt").write_text("x", encoding="utf-8")
         why = updater.why_not_replace(app)
@@ -1714,6 +1716,36 @@ def s17_install_ux() -> None:
               updater.safe_to_replace(app) is (updater.why_not_replace(app) == ""))
     finally:
         shutil.rmtree(tmp2, ignore_errors=True)
+
+    # --- 跨版本改名（CanvasHelper.exe -> Inferry.exe）不能把程序更新丢 ---
+    tmp3 = Path(tempfile.mkdtemp(prefix="ch_rename_"))
+    try:
+        old_app = tmp3 / "CanvasHelper"
+        (old_app / "_internal").mkdir(parents=True)
+        (old_app / "CanvasHelper.exe").write_bytes(b"MZ")
+        staged = tmp3 / "stage" / "Inferry"
+        (staged / "_internal").mkdir(parents=True)
+        (staged / "Inferry.exe").write_bytes(b"MZ" * 100)
+
+        found = updater.find_exe(staged)
+        check("改名后仍能认出主程序 exe",
+              found is not None and found.name == "Inferry.exe", repr(found))
+        check("改名后的安装目录仍可自动替换",
+              updater.why_not_replace(old_app) == "", updater.why_not_replace(old_app))
+        check("改名后也能通过安全阀", updater.safe_to_replace(old_app, staged))
+
+        script = updater.write_apply_script(
+            7777, old_app, staged, script_path=tmp3 / "apply.ps1")
+        text = script.read_text(encoding="utf-8-sig")
+        check("替换后启动的是新 exe（旧目录里的新文件名）",
+              f"$start = '{old_app / 'Inferry.exe'}'" in text, text[:300])
+        check("旧名字只作兜底",
+              f"$fallback = '{old_app / 'CanvasHelper.exe'}'" in text
+              and "Start-Process -FilePath $start" in text, text[:300])
+        check("不再把旧文件名当成唯一重启目标",
+              f"Start-Process -FilePath '{old_app / 'CanvasHelper.exe'}'" not in text)
+    finally:
+        shutil.rmtree(tmp3, ignore_errors=True)
 
     # 计划任务命令：打包版不该再引用不在包里的 headless_entry.py
     had_frozen = hasattr(sys, "frozen")
