@@ -155,6 +155,8 @@ class UpdateStatus:
     from_cache: bool = False
     newer: list[Release] = field(default_factory=list)
     asset: Asset | None = None
+    #: 当前版本自己的 Release（用来在「已是最新」时也能看本版新功能）
+    current_release: Release | None = None
 
     @property
     def has_update(self) -> bool:
@@ -168,6 +170,13 @@ class UpdateStatus:
     @property
     def notes_text(self) -> str:
         return format_notes(self.newer)
+
+    @property
+    def current_notes(self) -> str:
+        """当前版本的更新说明；源码运行 / 该版本还没发布时为空。"""
+        if self.current_release is None:
+            return ""
+        return format_notes([self.current_release])
 
 
 # --------------------------------------------------------------------------- #
@@ -386,6 +395,32 @@ def needs_check(interval_hours: float = DEFAULT_INTERVAL_HOURS) -> bool:
 # 检查
 # --------------------------------------------------------------------------- #
 
+def _find_release(releases: list[Release], version: str) -> Release | None:
+    """找出「正好是当前版本」的那条 Release（版本号按解析结果比，容忍 v 前缀）。"""
+    target = parse_version(version)
+    if target is None:
+        return None
+    for release in releases:
+        if parse_version(release.version) == target:
+            return release
+    return None
+
+
+def should_announce_upgrade(state: dict | None, version: str | None = None) -> bool:
+    """这次启动要不要弹「已更新到 vX：以下是新功能」。
+
+    - 记过上次运行的版本、且确实变新了 -> 弹一次；
+    - 没记过（本功能上线前的老用户）但有使用痕迹 -> 当作升级，弹一次；
+    - 全新安装（state 里没有任何使用痕迹）-> 不弹，免得刚装好就报「已更新」。
+    """
+    info = (state or {}).get("update") or {}
+    prev = str(info.get("last_run") or "")
+    current = version or __version__
+    if prev:
+        return prev != current and is_newer(current, prev)
+    return bool((state or {}).get("last_sync") or (state or {}).get("files"))
+
+
 def check(
     local: str | None = None,
     *,
@@ -427,6 +462,7 @@ def check(
         checked_at=stamp,
         newer=newer,
         asset=pick_asset(newer[0]) if newer else None,
+        current_release=_find_release(releases, current),
     )
 
 
@@ -451,6 +487,7 @@ def cached_status(local: str | None = None) -> UpdateStatus | None:
         from_cache=True,
         newer=newer,
         asset=pick_asset(newer[0]) if newer else None,
+        current_release=_find_release(releases, current),
     )
 
 

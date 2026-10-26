@@ -1505,6 +1505,37 @@ def s16_update() -> None:
               (not fresh.has_update) and updater.should_notify(fresh, {}) == (False, False))
         check("检查失败不提示", updater.should_notify(offline, {}) == (False, False))
 
+        # --- 已是最新时也能看「本版新功能」 ---
+        check("已是最新时也能找到本版 Release",
+              fresh.current_release is not None and fresh.current_release.version == "1.4.0",
+              repr(fresh.current_release))
+        check("本版说明只包含当前版本",
+              "v1.4.0" in fresh.current_notes and "v1.3.1" not in fresh.current_notes,
+              fresh.current_notes[:60])
+        cached_fresh = updater.cached_status("1.4.0")
+        check("缓存也能给出本版说明（离线可用）",
+              cached_fresh is not None and "发现新版" in cached_fresh.current_notes,
+              repr(cached_fresh))
+        unpublished = updater.cached_status("9.9.9")
+        check("没发布过的版本没有本版说明",
+              unpublished is not None and unpublished.current_notes == ""
+              and not unpublished.has_update, repr(unpublished))
+
+        # --- 升级后首次启动要不要弹「已更新到 vX」 ---
+        check("版本变新才弹",
+              updater.should_announce_upgrade({"update": {"last_run": "1.3.0"}}, "1.4.0"))
+        check("同版本不弹",
+              not updater.should_announce_upgrade({"update": {"last_run": "1.4.0"}}, "1.4.0"))
+        check("降级（回退旧版）不弹",
+              not updater.should_announce_upgrade({"update": {"last_run": "1.5.0"}}, "1.4.0"))
+        check("老用户（本功能上线前就在用）当作升级",
+              updater.should_announce_upgrade(
+                  {"last_sync": "2026-10-01T08:00:00+08:00"}, "1.3.0"))
+        check("有下载记录的老用户也算升级",
+              updater.should_announce_upgrade({"files": {"x": {}}}, "1.3.0"))
+        check("全新安装不弹",
+              not updater.should_announce_upgrade({"last_sync": None, "files": {}}, "1.3.0"))
+
         # --- 资产挑选 ---
         check("没有 zip 时不给资产", updater.pick_asset(rel("1.4.0", assets=(wheel,))) is None)
         plain = updater.Asset("CanvasHelper-1.4.0.zip", "https://example.invalid/b.zip", 10)
@@ -1579,6 +1610,11 @@ def s16_update() -> None:
           <= set(example.get("update") or {}), str(example.get("update")))
     check("默认开启启动检查", DEFAULT_CONFIG["update"]["check_on_start"] is True,
           str(DEFAULT_CONFIG["update"]))
+    gui_src = (ROOT / "canvas_helper" / "gui.py").read_text(encoding="utf-8")
+    check("公告窗支持「本版新功能」模式（已是最新也能看）",
+          "just_updated: bool = False" in gui_src and "current_notes" in gui_src)
+    check("升级后首次启动会弹一次本版说明",
+          "_announce_upgrade_once" in gui_src and "should_announce_upgrade" in gui_src)
 
 
 # --------------------------------------------------------------------------- #

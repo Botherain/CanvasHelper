@@ -72,6 +72,8 @@ class App(tk.Tk):
         self._update_status_var: tk.StringVar | None = None
         # 公告窗本身（避免重复点横幅/按钮时开出好几个）
         self._update_win: tk.Toplevel | None = None
+        # 升级后第一次启动：等拿到「本版说明」再弹一次
+        self._upgrade_notes_pending = False
 
         self._build_ui()
         self.after(100, self._pump)
@@ -85,6 +87,7 @@ class App(tk.Tk):
         # 院校清单在线更新：后台静默拉取，不阻塞界面（缓存过期才拉）
         self._refresh_school_list_async()
         # 版本校验：错开一点启动，让首屏先画出来；节流由 updater 自己控制
+        self.after(800, self._announce_upgrade_once)
         self.after(1500, self._check_update_async)
         # 首次运行：还没配过站点地址 -> 先让用户选学校，选完再进登录
         if not canvas_home():
@@ -774,6 +777,27 @@ class App(tk.Tk):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _announce_upgrade_once(self) -> None:
+        """升级后的第一次启动弹一次「已更新到 vX」。
+
+        说明优先用缓存：刚点过一键更新的机器，缓存里就有新版本的 Release，
+        所以重启后立刻能看，不用再联网。缓存没有就等 1.5 秒后的那次检查。
+        """
+        state = load_state()
+        upgraded = updater.should_announce_upgrade(state, __version__)
+        cached = self.update_status
+        has_notes = cached is not None and cached.ok and bool(cached.current_notes)
+        # 记下「上次运行的版本」：无论弹没弹，只判断这一次
+        self._mark_update("last_run", __version__)
+        if not upgraded:
+            return
+        if has_notes:
+            self.log(f"已更新到 v{__version__}，以下是本版的新功能")
+            self.do_show_update(auto=True, just_updated=True)
+            return
+        self._upgrade_notes_pending = True
+        self.log(f"已更新到 v{__version__}，正在读取本版更新说明…")
+
     def _on_update_status(self, status: updater.UpdateStatus, manual: bool) -> None:
         self._update_checking = False
         self.update_status = status
@@ -789,7 +813,11 @@ class App(tk.Tk):
                 messagebox.showwarning(APP_NAME, f"检查更新失败：\n{status.error or '未知原因'}")
             elif not status.has_update:
                 self.log(f"已是最新版本（v{__version__}）")
-                messagebox.showinfo(APP_NAME, f"当前已是最新版本（v{__version__}）。")
+                if status.current_notes:
+                    # 顺手把「本版新功能」打开，比一句「已是最新」有用
+                    self.do_show_update(auto=True)
+                else:
+                    messagebox.showinfo(APP_NAME, f"当前已是最新版本（v{__version__}）。")
             else:
                 self.log(f"发现新版本 v{status.latest}（当前 v{__version__}）")
                 # 手动查就是为了看内容，直接开公告窗，不再多弹一个「请点公告」框
@@ -798,8 +826,17 @@ class App(tk.Tk):
         if status.ok and status.has_update:
             _banner, popup = updater.should_notify(status, load_state())
             self.log(f"发现新版本 v{status.latest}（当前 v{__version__}）")
-            if popup:
-                self.do_show_update(auto=True)
+            if popup or self._upgrade_notes_pending:
+                self._upgrade_notes_pending = False
+                self.do_show_update(auto=True, just_updated=True)
+            return
+        if self._upgrade_notes_pending:
+            self._upgrade_notes_pending = False
+            if status.current_notes:
+                self.do_show_update(auto=True, just_updated=True)
+            else:
+                self.log(f"已更新到 v{__version__}，但这次没取到本版说明"
+                         "（可在设置页「查看更新公告」稍后再看）")
 
     def do_check_update(self) -> None:
         """手动检查：绕过节流，失败会明说。"""
@@ -820,8 +857,8 @@ class App(tk.Tk):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def do_show_update(self, auto: bool = False) -> None:
-        """展示「当前版本之后的所有版本说明」，并提供下载更新入口。
+    def do_show_update(self, auto: bool = False, just_updated: bool = False) -> None:
+        """展示更新说明：有新版就是公告 + 更新入口；已是最新就是「本版新功能」。
 
         刻意**不用** ``wait_window()``：这个窗是从 ``_pump`` 里弹出来的，
         嵌套事件循环会让队列里的下载进度消息一直排到窗口关掉才处理。
@@ -833,9 +870,14 @@ class App(tk.Tk):
                 messagebox.showinfo(
                     APP_NAME, "还没有检查过更新。\n先点「检查更新」联网查一次。")
             return
-        if not st.has_update:
+        has_update = st.has_update
+        if not has_update and not st.current_notes:
             if not auto:
-                messagebox.showinfo(APP_NAME, f"当前已是最新版本（v{__version__}）。")
+                messagebox.showinfo(
+                    APP_NAME,
+                    f"当前已是最新版本（v{__version__}）。\n这一版还没有发布说明"
+                    "（源码运行或该版本未发布时会这样）。",
+                )
             return
         if self._update_win is not None and self._update_win.winfo_exists():
             self._update_win.lift()
@@ -844,7 +886,10 @@ class App(tk.Tk):
 
         win = tk.Toplevel(self)
         self._update_win = win
-        win.title(f"发现新版本 v{st.latest}")
+        if has_update:
+            win.title(f"发现新版本 v{st.latest}")
+        else:
+            win.title(f"v{__version__} 新功能")
         win.transient(self)
         win.geometry("780x640")
         win.minsize(620, 460)
@@ -852,22 +897,30 @@ class App(tk.Tk):
 
         outer = ttk.Frame(win, padding=14)
         outer.pack(fill="both", expand=True)
-        ttk.Label(
-            outer,
-            text=f"当前 v{__version__} → 最新 v{st.latest}（落后 {st.behind} 个版本）",
-            style="Header.TLabel",
-        ).pack(anchor="w")
+        if has_update:
+            header = f"当前 v{__version__} → 最新 v{st.latest}（落后 {st.behind} 个版本）"
+            intro = "以下是这段时间新增 / 修复的内容："
+            body = st.notes_text
+        elif just_updated:
+            header = f"已更新到 v{__version__}"
+            intro = "以下是这一版新增 / 修复的内容（也可以在设置页「查看更新公告」再打开）："
+            body = st.current_notes
+        else:
+            header = f"当前版本 v{__version__}（已是最新）"
+            intro = "以下是这一版新增 / 修复的内容："
+            body = st.current_notes
+        ttk.Label(outer, text=header, style="Header.TLabel").pack(anchor="w")
         when = (st.checked_at or "")[:16].replace("T", " ")
         origin = "来自上次检查的缓存" if st.from_cache else f"检查于 {when}"
         ttk.Label(
             outer,
-            text=f"{origin}。以下是这段时间新增 / 修复的内容：",
+            text=f"{origin}。{intro}",
             foreground="#666",
         ).pack(anchor="w", pady=(4, 8))
 
         box = ScrolledText(outer, wrap="word", font=("Microsoft YaHei UI", 9))
         box.pack(fill="both", expand=True)
-        box.insert("1.0", st.notes_text or "（这个版本没有写更新说明）")
+        box.insert("1.0", body or "（这个版本没有写更新说明）")
         box.configure(state="disabled")
 
         status_var = tk.StringVar(value="")
@@ -876,8 +929,10 @@ class App(tk.Tk):
             anchor="w", pady=(8, 0))
 
         def close() -> None:
-            # 看过了就不再自动弹；顶栏提示保留到装上新版本或点「跳过」
-            self._mark_update("seen", st.latest)
+            # 看过了就不再自动弹；顶栏提示保留到装上新版本或点「跳过」。
+            # 「本版新功能」窗没什么可标记的，不写 state。
+            if has_update:
+                self._mark_update("seen", st.latest)
             self._update_status_var = None
             self._update_win = None
             win.destroy()
@@ -891,8 +946,10 @@ class App(tk.Tk):
             win.destroy()
 
         def open_page() -> None:
+            target = st.newer[0].url if has_update else (
+                st.current_release.url if st.current_release is not None else "")
             with suppress(OSError):
-                os.startfile(st.newer[0].url or updater.RELEASES_PAGE)
+                os.startfile(target or updater.RELEASES_PAGE)
 
         def start_update() -> None:
             asset = st.asset
@@ -933,14 +990,17 @@ class App(tk.Tk):
 
         btns = ttk.Frame(outer)
         btns.pack(fill="x", pady=(12, 0))
-        ttk.Button(btns, text="跳过这个版本", command=skip).pack(side="left")
+        if has_update:
+            ttk.Button(btns, text="跳过这个版本", command=skip).pack(side="left")
         ttk.Button(btns, text="打开 Release 页面", command=open_page).pack(
             side="left", padx=6)
-        ttk.Button(btns, text="以后再说", command=close).pack(side="right")
-        primary_text = ("立即下载并更新" if updater.is_frozen() and st.asset is not None
-                        else "打开下载页")
-        dl_btn = ttk.Button(btns, text=primary_text, command=start_update)
-        dl_btn.pack(side="right", padx=6)
+        ttk.Button(btns, text="以后再说" if has_update else "关闭",
+                   command=close).pack(side="right")
+        if has_update:
+            primary_text = ("立即下载并更新" if updater.is_frozen() and st.asset is not None
+                            else "打开下载页")
+            dl_btn = ttk.Button(btns, text=primary_text, command=start_update)
+            dl_btn.pack(side="right", padx=6)
 
     def _on_update_ready(self, payload) -> None:
         """下载 + 解压完成：确认后拉起替换脚本并退出。"""
