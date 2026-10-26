@@ -883,8 +883,9 @@ def s9_packaging() -> None:
           and "win.wait_window()" not in update_section[1].split("def _on_update_ready")[0])
 
     # ---- 免安装分发：装完就能双击运行，不靠任何 .bat / .ps1 安装脚本 ----
-    bats = [p.name for p in ROOT.rglob("*.bat")]
-    check("仓库里没有 .bat 启动脚本", not bats, str(bats))
+    bats = sorted(p.name for p in ROOT.rglob("*.bat"))
+    check("仓库里没有启动/安装用的 .bat（只允许卸载器）",
+          set(bats) <= {"uninstall.bat"}, str(bats))
     check("仓库里没有 make_shortcut.ps1（快捷方式改由界面按钮创建）",
           not (ROOT / "scripts" / "make_shortcut.ps1").exists())
     pyw = ROOT / "CanvasHelper.pyw"
@@ -910,6 +911,19 @@ def s9_packaging() -> None:
           and 'CanvasHelper/CanvasHelper.exe"} - names' in release_yml)
     check("Release 正文自动追加「下载哪个文件」指引",
           "下载哪个文件" in release_yml and "CanvasHelper-v{ver}-win64.zip" in release_yml)
+
+    # ---- 一键卸载：脚本入库、编码正确、打包带上 ----
+    for name in ("uninstall.bat", "uninstall.ps1"):
+        check(f"{name} 入库", (ROOT / name).is_file(), name)
+    ps1_bytes = (ROOT / "uninstall.ps1").read_bytes()
+    check("uninstall.ps1 带 UTF-8 BOM（PowerShell 5.1 才认中文）",
+          ps1_bytes.startswith(b"\xef\xbb\xbf"), ps1_bytes[:3].hex())
+    bat_bytes = (ROOT / "uninstall.bat").read_bytes()
+    check("uninstall.bat 纯 ASCII（cmd 按 OEM 代码页读批处理）",
+          all(b < 128 for b in bat_bytes),
+          str([b for b in bat_bytes if b >= 128][:5]))
+    check("打 zip 时带上卸载器并参与校验",
+          "uninstall.bat" in release_yml and "uninstall.ps1" in release_yml)
 
 
 def s10_extract() -> None:
@@ -1783,6 +1797,118 @@ def s17_install_ux() -> None:
 # --------------------------------------------------------------------------- #
 # 脚本入口
 # --------------------------------------------------------------------------- #
+def s18_uninstall() -> None:
+    """[18] 一键卸载：计划清单、自删保护，以及真的跑一遍 uninstall.ps1（沙箱）。"""
+    import subprocess
+
+    from canvas_helper import uninstall as un
+
+    print("\n[18] 一键卸载（程序 + 使用数据，课程文件不动）")
+
+    tmp = Path(tempfile.mkdtemp(prefix="ch_unins_"))
+    try:
+        data = tmp / "data"
+        (data / "profile").mkdir(parents=True)
+        (data / "config.json").write_text('{"classes_root": "D:\\\\Courses"}', encoding="utf-8")
+        (data / "state.json").write_text("{}", encoding="utf-8")
+        app = tmp / "app" / "CanvasHelper"
+        (app / "_internal").mkdir(parents=True)
+        (app / "CanvasHelper.exe").write_bytes(b"MZ")
+        lnk = tmp / "desk" / "CanvasHelper.lnk"
+        lnk.parent.mkdir()
+        lnk.write_bytes(b"\x00")
+
+        # --- 计划与清单（纯计算，不碰真实数据目录） ---
+        p = un.Plan(app_dir=app, data_dir=data, tasks=un.TASKS, shortcut=lnk,
+                    classes_root="D:\\Courses")
+        text = un.render(p)
+        check("清单包含程序目录", str(app) in text, text[:120])
+        check("清单包含使用数据与体积", str(data) in text and "MB" in text, text[:120])
+        check("清单包含两个计划任务", all(t in text for t in un.TASKS), text[:160])
+        check("清单包含桌面快捷方式", lnk.name in text, text[:160])
+        check("清单写明课程文件不删",
+              "不会被删除" in text and "D:\\Courses" in text, text[-160:])
+        check("清单写明 DeskBox 待办不删", "DeskBox" in text, text[-120:])
+        check("dry-run 返回计划且不动磁盘",
+              un.run(dry_run=True, app_dir=app, keep_data=True)["dry_run"]
+              and app.exists() and data.exists())
+
+        rep = un.run(dry_run=True, keep_data=True, app_dir=app)
+        check("keep_data 时清单里不列使用数据", rep["data"] == "", str(rep))
+
+        # --- 父目录自删保护：只剩我们自己的文件才允许 ---
+        extract = tmp / "extract"
+        extract.mkdir()
+        (extract / "README.txt").write_text("x", encoding="utf-8")
+        (extract / "uninstall.bat").write_text("x", encoding="utf-8")
+        check("只剩卸载器文件时允许删目录", un.leftover_only_ours(extract))
+        (extract / "我的笔记.txt").write_text("x", encoding="utf-8")
+        check("有多余文件时不允许删目录", not un.leftover_only_ours(extract))
+        check("有多余文件时不写自删脚本", un.schedule_self_delete(extract) is None)
+        (extract / "我的笔记.txt").unlink()
+        selfdel = un.schedule_self_delete(extract)
+        check("只剩自己的文件时写自删脚本",
+              selfdel is not None and selfdel.is_file(), str(selfdel))
+        if selfdel is not None:
+            body = selfdel.read_text(encoding="ascii")
+            check("自删脚本指向该目录", str(extract) in body, body[:120])
+            selfdel.unlink(missing_ok=True)
+
+        # --- 真的跑一遍 uninstall.ps1（沙箱；任务名用不存在的假名） ---
+        sandbox = tmp / "extract2"
+        sandbox.mkdir()
+        shutil.copy2(ROOT / "uninstall.ps1", sandbox / "uninstall.ps1")
+        shutil.copy2(ROOT / "uninstall.bat", sandbox / "uninstall.bat")
+        (sandbox / "README.txt").write_text("x", encoding="utf-8")
+        (sandbox / "keep.txt").write_text("keep", encoding="utf-8")  # 阻止连目录自删
+
+        app2 = tmp / "app2" / "CanvasHelper"
+        (app2 / "_internal").mkdir(parents=True)
+        (app2 / "CanvasHelper.exe").write_bytes(b"MZ")
+        data2 = tmp / "data2"
+        (data2 / "profile").mkdir(parents=True)
+        data2.joinpath("config.json").write_text(
+            '{"classes_root": "D:\\\\Courses"}', encoding="utf-8")
+        lnk2 = tmp / "desk2" / "not-here.lnk"
+
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(sandbox / "uninstall.ps1"), "-Yes",
+             "-AppDir", str(app2), "-DataDir", str(data2), "-Shortcut", str(lnk2),
+             "-Tasks", "测试-不存在-A,测试-不存在-B"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=240, check=False,
+        )
+        check("卸载脚本正常退出", proc.returncode == 0,
+              f"rc={proc.returncode} {(proc.stderr or proc.stdout or '')[:200]}")
+        check("程序目录已删除", not app2.exists(), str(app2))
+        check("使用数据已删除", not data2.exists(), str(data2))
+        check("解压目录里的其它文件保留", (sandbox / "keep.txt").is_file())
+        check("课程文件提示写到输出里", "课程文件" in (proc.stdout or ""),
+              (proc.stdout or "")[-200:])
+
+        # --- -KeepData：只删程序，保留数据 ---
+        app3 = tmp / "app3" / "CanvasHelper"
+        (app3 / "_internal").mkdir(parents=True)
+        (app3 / "CanvasHelper.exe").write_bytes(b"MZ")
+        data3 = tmp / "data3"
+        (data3 / "profile").mkdir(parents=True)
+        data3.joinpath("state.json").write_text("{}", encoding="utf-8")
+        proc2 = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(sandbox / "uninstall.ps1"), "-Yes", "-KeepData",
+             "-AppDir", str(app3), "-DataDir", str(data3), "-Shortcut", str(lnk2),
+             "-Tasks", "测试-不存在-A"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=240, check=False,
+        )
+        check("-KeepData 时程序删、数据留",
+              proc2.returncode == 0 and not app3.exists() and (data3 / "state.json").is_file(),
+              f"rc={proc2.returncode} app={app3.exists()} data={data3.exists()}")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> int:
     cfg = load_config()
     root, fixture_root = build_course_root()
@@ -1811,6 +1937,7 @@ def main() -> int:
     s15_schoollist()
     s16_update()
     s17_install_ux()
+    s18_uninstall()
 
     if fixture_root is not None:
         shutil.rmtree(fixture_root, ignore_errors=True)

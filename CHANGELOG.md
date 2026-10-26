@@ -5,6 +5,27 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.3.4] - 2026-10-26
+
+本版只加一件东西：**一键卸载**。装得简单，也得卸得干净。
+
+### 新增 · 一键卸载（程序 + 使用数据）
+
+- Release zip 里多两个文件：`uninstall.bat`（双击即用）与 `uninstall.ps1`（实际逻辑）。
+  会删除：程序目录、`%LOCALAPPDATA%\CanvasHelper`（配置 / 登录态 / 日志 / 更新缓存）、
+  两个计划任务、桌面快捷方式。
+- **明确不删**：课程文件夹、DeskBox 里的待办，以及你放在解压目录里的其它文件
+  （脚本只在「目录里只剩 `README.txt` / `uninstall.bat` / `uninstall.ps1`」时连目录一起删）。
+- 交互两档：输入 `YES` 全删、输入 `KEEP` 只删程序保留数据；脚本化可加 `-Yes` / `-KeepData`。
+- 命令行等价入口：`python -m canvas_helper uninstall [--yes] [--keep-data]`（源码/终端用户）。
+- 编码有讲究：`.ps1` 必须带 UTF-8 BOM（否则 PowerShell 5.1 按 ANSI 读中文会把引号吃掉），
+  `.bat` 必须纯 ASCII（cmd 按 OEM 代码页读批处理）——两条都进了自检。
+- 自检新增第 [18] 节「一键卸载」：除了计划清单与「父目录里有多余文件就不删」的保护，
+  还会**在沙箱里真跑一遍 `uninstall.ps1`**（传假任务名，避免动到本机计划任务），
+  smoke 384 -> 408，pytest 用例 40 -> 41。
+
+> 2.0.0 的 Inferry 改名将基于本版进行。
+
 ## [1.3.3] - 2026-10-26
 
 过渡版本：为即将到来的改名（**CanvasHelper → Inferry**，2.0.0）铺路，让老用户能一键跨过去。

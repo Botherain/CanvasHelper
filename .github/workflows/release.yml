@@ -111,31 +111,43 @@ jobs:
           6. 有新版本时顶栏会出现提示，点开按「立即下载并更新」即可。
              1.2.x 及更早的版本需要手动下载 zip 覆盖一次。
 
+          7. 想彻底卸载：双击本目录里的 uninstall.bat（会删掉程序、使用数据、
+             计划任务与桌面快捷方式；课程文件与 DeskBox 待办不会被删除）。
+
           项目主页：https://github.com/Botherain/CanvasHelper
           """
           pathlib.Path("dist/README.txt").write_text(notes, encoding="utf-8-sig")
 
+          # 卸载器放在 zip 根（与 CanvasHelper\ 平级），不能进 exe 同级目录，
+          # 否则会破坏「一键更新」的安全阀；.ps1 带 BOM、.bat 纯 ASCII，原样拷过去。
+          import shutil
+          for name in ("uninstall.bat", "uninstall.ps1"):
+              shutil.copy2(name, pathlib.Path("dist") / name)
+
           zip_path = f"dist/CanvasHelper-{os.environ['GITHUB_REF_NAME']}-win64.zip"
           root = pathlib.Path("dist/CanvasHelper")
           with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-              zf.write("dist/README.txt", "README.txt")
+              for name in ("README.txt", "uninstall.bat", "uninstall.ps1"):
+                  zf.write(pathlib.Path("dist") / name, name)
               for path in sorted(root.rglob("*")):
                   if path.is_file():
                       zf.write(path, path.relative_to("dist").as_posix())
           print(zip_path, pathlib.Path(zip_path).stat().st_size)
 
       - name: 校验 zip 内容
-        # 少一个都是用户那边的「解压后不知道点哪个 / 双击闪退」
+        # 少一个都是用户那边的「解压后不知道点哪个 / 双击闪退 / 不知道怎么卸」
         shell: python
         run: |
           import os, zipfile
           zip_path = f"dist/CanvasHelper-{os.environ['GITHUB_REF_NAME']}-win64.zip"
           with zipfile.ZipFile(zip_path) as zf:
               names = set(zf.namelist())
-          missing = {"README.txt", "CanvasHelper/CanvasHelper.exe"} - names
+          missing = {"README.txt", "uninstall.bat", "uninstall.ps1",
+                     "CanvasHelper/CanvasHelper.exe"} - names
           if missing:
               raise SystemExit(f"zip 缺少：{sorted(missing)}")
-          print(f"zip 内容校验通过：README.txt + CanvasHelper/，共 {len(names)} 个条目")
+          print(f"zip 内容校验通过：README.txt + uninstall.bat/ps1 + CanvasHelper/，"
+                f"共 {len(names)} 个条目")
 
       - name: 生成 Release 说明（CHANGELOG 小节 + 下载指引）
         shell: python

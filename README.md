@@ -172,6 +172,16 @@ canvas-helper-gui      # 无控制台启动器（gui-scripts 生成的 exe，可
 
 从旧版本（数据放在源码目录）升级时会**自动搬一次**，原文件保留作备份。
 
+### 卸载
+
+三种方式效果相同：删掉**程序目录**、**使用数据**（`%LOCALAPPDATA%\CanvasHelper`）、两个计划任务与桌面快捷方式。**课程文件与 DeskBox 待办不会被删除。**
+
+- **zip 版**：双击解压目录里的 `uninstall.bat` → 输入 `YES` 确认（输入 `KEEP` 只删程序、保留配置与登录态）；
+- **源码版**：`python -m canvas_helper uninstall`（`--yes` 不询问，`--keep-data` 保留数据）；
+- **手动**：删程序目录 + `%LOCALAPPDATA%\CanvasHelper`，再到「任务计划程序」删掉 `CanvasHelper-DailySync` 与 `CanvasHelper-WeeklyReport`。
+
+卸载器只在「解压目录里只剩 `README.txt` / `uninstall.bat` / `uninstall.ps1`」时连该目录一起删；你放在里面的其它文件会被保留。
+
 ## 详细使用教程
 
 ### 界面导览

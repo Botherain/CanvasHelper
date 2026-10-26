@@ -13,7 +13,8 @@ from .paths import ensure_dirs, get_logger
 _SUBMODULES = (
     "auth", "canvas_api", "classify", "cleaner", "coursecode", "deskbox",
     "extract", "extras", "filesync", "gui", "paths", "runner", "scheduler",
-    "schoollist", "schoolpicker", "schools", "shortcut", "tidy", "updater",
+    "schoollist", "schoolpicker", "schools", "shortcut", "tidy", "uninstall",
+    "updater",
 )
 
 
@@ -278,8 +279,13 @@ def main(argv: list[str] | None = None) -> int:
             print("（加 --download 可直接下载 win64 zip；--brief 只打一行）")
         return 3
 
+    if cmd == "uninstall":
+        from . import uninstall
+
+        return uninstall.main(argv[1:])
+
     print("用法: python -m canvas_helper "
-          "[gui|sync|report|flush|clean|tidy|login|courses|schools|update|install-browser] "
+          "[gui|sync|report|flush|clean|tidy|login|courses|schools|update|uninstall|install-browser] "
           "[--headless] [--version]")
     print("  gui      启动图形界面（默认）")
     print("  sync     立即同步课程文件与待办")
@@ -292,6 +298,8 @@ def main(argv: list[str] | None = None) -> int:
     print("  schools  列出 Canvas 院校清单（--update 在线更新；可带关键词过滤）")
     print("  update   检查新版本并显示更新公告（--download 直接下载 win64 zip；"
           "--brief 只打一行、有新版本退出码 3）")
+    print("  uninstall  卸载：删程序目录 + 使用数据 + 计划任务（--yes 不询问；"
+          "--keep-data 保留配置与登录态）")
     print("  install-browser  下载 Playwright 自带的 Chromium（没有 Edge 时才需要）")
     return 2
 

@@ -106,3 +106,7 @@ def test_16_版本校验与更新公告() -> None:
 
 def test_17_免安装分发() -> None:
     _run("[17] 免安装分发（快捷方式 / 计划任务）", smoke.s17_install_ux)
+
+
+def test_18_一键卸载() -> None:
+    _run("[18] 一键卸载（程序 + 使用数据）", smoke.s18_uninstall)
