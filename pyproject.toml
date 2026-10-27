@@ -3,16 +3,16 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "canvas-helper"
-# 与 canvas_helper/__init__.py 的 __version__ 保持一致（自检 [9] 会断言）
-version = "1.3.4"
-description = "Canvas 课程内容同步与学习辅助：按既有目录规则归档课程文件，把截止时间写入 DeskBox 待办"
+name = "inferry"
+# 与 inferry/__init__.py 的 __version__ 保持一致（自检 [9] 会断言）
+version = "2.0.0"
+description = "Inferry（原 CanvasHelper）：按既有目录规则归档 Canvas 课程文件，把截止时间写入 DeskBox 待办"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.9"
 authors = [{ name = "Botherain" }]
-keywords = ["canvas", "lms", "sync", "deskbox", "tkinter", "education"]
+keywords = ["inferry", "canvas", "lms", "sync", "deskbox", "tkinter", "education"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Win32 (MS Windows)",
@@ -50,20 +50,24 @@ dev = [
 ]
 
 [project.scripts]
-canvas-helper = "canvas_helper.__main__:main"
+inferry = "inferry.__main__:main"
+# 1.x 的命令名留一个版本做兼容：老脚本、老教程、老快捷方式里的 canvas-helper
+# 仍然能用；升级安装时 pip 会把旧启动器改指向新包，不会留下断掉的 exe。
+canvas-helper = "inferry.__main__:main"
 
 [project.gui-scripts]
 # gui-scripts（而不是 scripts）才会生成「无控制台」的启动器：pip 装完后
-# canvas-helper-gui.exe 可以当普通 exe 双击 / 建快捷方式，不会弹黑框。
-canvas-helper-gui = "canvas_helper.gui:main"
+# inferry-gui.exe 可以当普通 exe 双击 / 建快捷方式，不会弹黑框。
+inferry-gui = "inferry.gui:main"
+canvas-helper-gui = "inferry.gui:main"
 
 [project.urls]
-Homepage = "https://github.com/Botherain/CanvasHelper"
-Repository = "https://github.com/Botherain/CanvasHelper"
-Issues = "https://github.com/Botherain/CanvasHelper/issues"
+Homepage = "https://github.com/Botherain/Inferry"
+Repository = "https://github.com/Botherain/Inferry"
+Issues = "https://github.com/Botherain/Inferry/issues"
 
 [tool.setuptools]
-packages = ["canvas_helper"]
+packages = ["inferry"]
 
 # ---------------------------------------------------------------------------
 # 静态检查（python -m ruff check . ；CI 每次推送都跑）
@@ -114,7 +118,7 @@ ignore = [
 # （1.19 起下限 3.10），只能按最接近的 3.10 检查；3.9 的真实兼容性由 CI 的
 # 「离线自检 · Python 3.9」job 实跑保证，不靠类型检查器。
 python_version = "3.10"
-files = ["canvas_helper", "tests", "scripts"]
+files = ["inferry", "tests", "scripts"]
 show_error_codes = true
 # 无注解的函数体也照样检查：本项目多数函数已带注解，未带的那几个恰恰是最容易
 # 出类型错的地方（实测这一开就抓出 3 个真的赋值不兼容）

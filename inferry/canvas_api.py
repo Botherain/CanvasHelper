@@ -47,7 +47,7 @@ class Course:
     def short(self) -> str:
         """课程代码（跨院校通用），例如 CS5187 / MATH101。
 
-        提取规则见 :mod:`canvas_helper.coursecode`：课程代码字段优先，
+        提取规则见 :mod:`inferry.coursecode`：课程代码字段优先，
         剥掉学期数字前缀；课程名次之；都不行才回落到原始字符串。
         """
         return course_code(self.code, self.name, fallback=str(self.id))

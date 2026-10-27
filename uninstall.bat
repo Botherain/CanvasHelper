@@ -16,7 +16,8 @@ exit /b %errorlevel%
 :no_ps
 echo.
 echo PowerShell not found. Delete this folder manually, and also delete:
-echo   %LOCALAPPDATA%\CanvasHelper
+echo   %LOCALAPPDATA%\Inferry
+echo   %LOCALAPPDATA%\CanvasHelper   (left over from 1.x)
 echo Your course files and DeskBox todos are not touched.
 echo.
 pause

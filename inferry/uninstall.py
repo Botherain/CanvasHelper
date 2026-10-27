@@ -3,15 +3,16 @@
 三种入口共用同一套语义：
 
 * Release zip 里附带的 ``uninstall.bat`` + ``uninstall.ps1``（打包版用户，无需 Python）；
-* 命令行 ``python -m canvas_helper uninstall [--yes] [--keep-data]``（源码用户）；
+* 命令行 ``python -m inferry uninstall [--yes] [--keep-data]``（源码用户）；
 * 本模块的函数（供上面两者复用与离线测试）。
 
 删除范围严格限定为「我们自己造的东西」：
 
 1. 程序目录（exe 与 ``_internal``）；
-2. 使用数据 ``%LOCALAPPDATA%\\CanvasHelper``（配置、登录态、日志、更新缓存…）；
-3. 两个计划任务（每日同步 / 每周摘要）；
-4. 桌面快捷方式 ``CanvasHelper.lnk``（存在才删）。
+2. 使用数据 ``%LOCALAPPDATA%\\Inferry``（配置、登录态、日志、更新缓存…），
+   以及 1.x 的旧目录 ``%LOCALAPPDATA%\\CanvasHelper``（存在才删，避免升级后残留）；
+3. 计划任务：新名两条 + 1.x 旧名两条（升级后立刻卸载也清得干净）；
+4. 桌面快捷方式 ``Inferry.lnk`` 与旧的 ``CanvasHelper.lnk``（存在才删）。
 
 **不删**：课程文件夹（``classes_root``）、DeskBox 里的待办、你放在程序目录里的任何
 其他文件（脚本调用方只删程序目录本身，父目录一旦还有别人的东西就整个保留）。
@@ -28,16 +29,20 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .paths import DATA_DIR, PROJECT_DIR, get_logger, load_config
+from .paths import DATA_DIR, LEGACY_DATA_DIR, PROJECT_DIR, get_logger, load_config
 
 log = get_logger()
 
-#: 计划任务名（改名时这里与 scheduler.py 要一起改）
-TASKS: tuple[str, ...] = ("CanvasHelper-DailySync", "CanvasHelper-WeeklyReport")
+#: 计划任务名。**新名 + 旧名兜底**：升级到 2.0.0 后立刻卸载，也必须把 1.x 留下的
+#: 两条任务清掉，否则「任务计划程序」里会永远留着两条跑不起来的僵尸任务。
+TASKS: tuple[str, ...] = (
+    "Inferry-DailySync", "Inferry-WeeklyReport",
+    "CanvasHelper-DailySync", "CanvasHelper-WeeklyReport",
+)
 #: 卸载器自己的文件名：父目录里只剩这些时，才允许把父目录也删掉
 OWN_FILES = {"readme.txt", "uninstall.bat", "uninstall.ps1"}
-#: 桌面快捷方式文件名
-LNK_NAME = "CanvasHelper.lnk"
+#: 桌面快捷方式文件名（旧名一并清理）
+LNK_NAMES: tuple[str, ...] = ("Inferry.lnk", "CanvasHelper.lnk")
 
 
 @dataclass
@@ -45,16 +50,16 @@ class Plan:
     """要删什么、留什么（``dry_run`` 与界面提示都用它）。"""
 
     app_dir: Path | None
-    data_dir: Path
+    data_dirs: list[Path]
     tasks: tuple[str, ...]
-    shortcut: Path | None
+    shortcuts: list[Path] = field(default_factory=list)
     classes_root: str = ""
     keep_data: bool = False
     extra: list[str] = field(default_factory=list)
 
     @property
     def data_size(self) -> int:
-        return _tree_size(self.data_dir)
+        return sum(_tree_size(d) for d in self.data_dirs)
 
 
 def _tree_size(root: Path) -> int:
@@ -94,18 +99,27 @@ def app_dir_of(exe: Path | None = None) -> Path | None:
     return Path(exe or sys.executable).resolve().parent
 
 
+def data_dirs() -> list[Path]:
+    """要删除的数据目录：当前名字 + 1.x 旧名字（迁移还没跑过时数据仍在旧目录里）。"""
+    out = [Path(DATA_DIR)]
+    legacy = Path(LEGACY_DATA_DIR)
+    if legacy != out[0] and legacy.is_dir():
+        out.append(legacy)
+    return out
+
+
 def plan(*, keep_data: bool = False, app_dir: Path | None = None) -> Plan:
     """算出卸载计划（不碰磁盘）。"""
     target = Path(app_dir) if app_dir is not None else app_dir_of()
-    lnk = desktop_dir() / LNK_NAME
+    links = [desktop_dir() / name for name in LNK_NAMES]
     classes = ""
     with suppress(Exception):
         classes = str(load_config().get("classes_root") or "")
     return Plan(
         app_dir=target,
-        data_dir=Path(DATA_DIR),
+        data_dirs=data_dirs(),
         tasks=TASKS,
-        shortcut=lnk if lnk.is_file() else None,
+        shortcuts=[p for p in links if p.is_file()],
         classes_root=classes,
         keep_data=keep_data,
     )
@@ -119,12 +133,11 @@ def render(plan_: Plan) -> str:
     if not plan_.keep_data:
         size = plan_.data_size
         hint = f"（约 {size / 1048576:.1f} MB）" if size else ""
-        lines.append(f"  · 使用数据   {plan_.data_dir}{hint}")
+        lines.extend(f"  · 使用数据   {d}{hint}" for d in plan_.data_dirs)
     else:
         lines.append("  · 使用数据   保留（按 --keep-data / KEEP 执行）")
     lines.append("  · 计划任务   " + "、".join(plan_.tasks))
-    if plan_.shortcut is not None:
-        lines.append(f"  · 桌面快捷方式 {plan_.shortcut.name}")
+    lines.extend(f"  · 桌面快捷方式 {lnk.name}" for lnk in plan_.shortcuts)
     lines.append("")
     lines.append("将保留：")
     if plan_.classes_root:
@@ -134,7 +147,7 @@ def render(plan_: Plan) -> str:
 
 
 def remove_tasks() -> list[str]:
-    """删除两个计划任务，返回实际删掉的名字（不存在不算失败）。"""
+    """删除计划任务（新名 + 旧名），返回实际删掉的名字（不存在不算失败）。"""
     removed: list[str] = []
     for name in TASKS:
         proc = subprocess.run(
@@ -255,9 +268,9 @@ def run(
     plan_ = plan(keep_data=keep_data, app_dir=app_dir)
     report: dict = {
         "app": str(plan_.app_dir) if plan_.app_dir else "",
-        "data": "" if keep_data else str(plan_.data_dir),
+        "data": [] if keep_data else [str(d) for d in plan_.data_dirs],
         "tasks": [],
-        "shortcut": "",
+        "shortcuts": [],
         "stopped": False,
         "self_deleted": "",
         "errors": [],
@@ -274,10 +287,13 @@ def run(
         report["tasks"] = remove_tasks()
     except Exception as exc:  # 计划任务删不掉不该挡住后面的清理
         report["errors"].append(f"计划任务：{exc}")
-    if remove_shortcut(plan_.shortcut):
-        report["shortcut"] = str(plan_.shortcut)
-    if not keep_data and remove_path(plan_.data_dir):
-        progress("已删除使用数据")
+    for lnk in plan_.shortcuts:
+        if remove_shortcut(lnk):
+            report["shortcuts"].append(str(lnk))
+    if not keep_data:
+        for d in plan_.data_dirs:
+            if remove_path(d):
+                progress(f"已删除使用数据：{d}")
     if plan_.app_dir is not None:
         parent = plan_.app_dir.parent
         if remove_path(plan_.app_dir):
@@ -290,7 +306,7 @@ def run(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """``python -m canvas_helper uninstall`` 的实现。"""
+    """``python -m inferry uninstall`` 的实现。"""
     argv = list(sys.argv[1:] if argv is None else argv)
     keep_data = "--keep-data" in argv
     assume_yes = "--yes" in argv or "-y" in argv
@@ -315,13 +331,14 @@ def main(argv: list[str] | None = None) -> int:
     if report["app"]:
         print(f"  · 程序目录   {report['app']}")
     if report["data"]:
-        print(f"  · 使用数据   {report['data']}")
+        for d in report["data"]:
+            print(f"  · 使用数据   {d}")
     else:
         print("  · 使用数据   已保留")
     if report["tasks"]:
         print("  · 计划任务   " + "、".join(report["tasks"]))
-    if report["shortcut"]:
-        print(f"  · 快捷方式   {report['shortcut']}")
+    for lnk in report["shortcuts"]:
+        print(f"  · 快捷方式   {lnk}")
     if report["self_deleted"]:
         print(f"  · 剩余文件   {report['self_deleted']}（几秒后自动删除）")
     for err in report["errors"]:

@@ -1,4 +1,4 @@
-"""CanvasHelper 图形界面（tkinter + ttk）。"""
+"""Inferry 图形界面（tkinter + ttk）。"""
 
 from __future__ import annotations
 
@@ -85,6 +85,10 @@ class App(tk.Tk):
     def _startup(self) -> None:
         state = load_state()
         self._set_status(f"上次同步：{state.get('last_sync') or '（从未）'}")
+        # 改名（1.x CanvasHelper -> 2.0.0 Inferry）留下的一次性清理：
+        # 旧计划任务指向已不存在的 exe，旧桌面快捷方式是死链。都在后台小成本完成，
+        # 失败只记日志，绝不影响启动。
+        self._cleanup_renamed_leftovers()
         # 院校清单在线更新：后台静默拉取，不阻塞界面（缓存过期才拉）
         self._refresh_school_list_async()
         # 版本校验：错开一点启动，让首屏先画出来；节流由 updater 自己控制
@@ -113,10 +117,46 @@ class App(tk.Tk):
             self.log("计划任务：已注册每日同步/每周摘要")
             # 程序被挪过位置时旧任务会指向不存在的路径：稍后按当前位置重建
             self.after(2000, self._check_schedule_paths)
+        elif (self.cfg.get("schedule") or {}).get("enabled"):
+            # 任务开着、任务表里却查不到（例如刚被上面的清理删掉）：同样走自愈重建
+            self.after(2000, self._check_schedule_paths)
         # 通知不再落盘，所以打开时现拉一次；但登录态已知过期时跳过，
         # 免得刚开窗口就弹出浏览器登录框（那种情况下顶部横幅已经在提示了）
         if not auth:
             self.do_load_notices()
+
+    def _cleanup_renamed_leftovers(self) -> None:
+        """改名（CanvasHelper -> Inferry）留下的一次性清理。
+
+        * 旧的 ``CanvasHelper-DailySync`` / ``-WeeklyReport`` 任务：指向的 exe 已被
+          镜像替换掉，留着只会每天静默失败；
+        * 旧的 ``CanvasHelper.lnk``：同样成了死链（目标 exe 还在时不动它）。
+
+        做完在 ``state.json`` 里记一笔，以后启动不再重复跑子进程。
+        """
+        state = load_state()
+        if state.get("renamed_from"):
+            return
+        ok = True
+        try:
+            gone = scheduler.cleanup_legacy()
+            if gone:
+                self.log("已清理旧版计划任务：" + "、".join(gone) + "（稍后按新程序名重建）")
+        except Exception as exc:
+            ok = False
+            log.warning("清理旧计划任务失败: %s", exc)
+        try:
+            removed = shortcut.remove_legacy()
+            if removed is not None:
+                self.log(f"已删除失效的旧桌面快捷方式：{removed.name}"
+                         "（需要的话可在设置页按新名字重建）")
+        except Exception as exc:
+            ok = False
+            log.warning("清理旧快捷方式失败: %s", exc)
+        if ok:
+            state = load_state()
+            state["renamed_from"] = "CanvasHelper"
+            save_state(state)
 
     def _refresh_school_list_async(self) -> None:
         """后台静默更新院校清单（缓存过期才拉；失败不影响使用）。"""
@@ -1105,7 +1145,7 @@ class App(tk.Tk):
             messagebox.showinfo(APP_NAME, "请先在设置页填写「Canvas 站点地址」。")
 
     def do_create_shortcut(self) -> None:
-        """在桌面放一个快捷方式：exe 版指 exe，源码版指 pythonw + CanvasHelper.pyw。"""
+        """在桌面放一个快捷方式：exe 版指 exe，源码版指 pythonw + Inferry.pyw。"""
         def job():
             return shortcut.create(shortcut.target_for())
 

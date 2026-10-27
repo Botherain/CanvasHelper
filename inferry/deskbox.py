@@ -34,7 +34,7 @@ from .paths import (
 UTC = timezone.utc
 
 log = get_logger()
-#: 兼容别名：历史常量（香港时区）。新代码请用 :func:`canvas_helper.paths.to_local`
+#: 兼容别名：历史常量（香港时区）。新代码请用 :func:`inferry.paths.to_local`
 #: ——它跟随配置项 ``timezone``，换学校时才不会把截止时间算错几个小时。
 #: 取不到时区库时为 None（Windows 的 IANA 库来自 tzdata），不影响主流程。
 HK = zone_or_none("Asia/Hong_Kong")

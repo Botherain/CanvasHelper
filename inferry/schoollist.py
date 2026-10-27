@@ -11,7 +11,7 @@
 
     内置清单（已核实，126 条）
         +  官方目录（在线拉取，91 条左右）
-        ->  合并去重 ->  本地缓存（%LOCALAPPDATA%\\CanvasHelper\\schools_cache.json）
+        ->  合并去重 ->  本地缓存（%LOCALAPPDATA%\\Inferry\\schools_cache.json）
         ->  界面上的院校列表
 
 **降级顺序**（任何一步失败都不影响使用）：
@@ -102,7 +102,7 @@ def fetch_official(timeout: float = FETCH_TIMEOUT) -> list[tuple[str, str]]:
     # S310: 上面已校验过是 https 常量，不可能是 file:// 之类；ruff 无法静态推断
     req = urllib.request.Request(  # noqa: S310
         OFFICIAL_URL + "?per_page=100",
-        headers={"User-Agent": "CanvasHelper/1.0 (+https://github.com/Botherain/CanvasHelper)",
+        headers={"User-Agent": "Inferry/1.0 (+https://github.com/Botherain/Inferry)",
                  "Accept": "application/json"},
     )
     try:

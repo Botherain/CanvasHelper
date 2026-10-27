@@ -50,7 +50,7 @@ def _page_html(course: Course, item: Item, body: str) -> str:
         f"<title>{item.title}</title>"
         "<style>body{font-family:'Segoe UI',sans-serif;max-width:900px;margin:2em auto;"
         "line-height:1.6;color:#222} a{color:#1a73e8}</style></head><body>"
-        f"<p style=\"color:#888;font-size:.85em\">CanvasHelper 自动保存 · "
+        f"<p style=\"color:#888;font-size:.85em\">Inferry 自动保存 · "
         f"{course.name} · {item.module_name} · "
         f"<a href=\"{item.html_url}\">打开原文</a></p>"
         f"<h1>{item.title}</h1>{body}</body></html>"

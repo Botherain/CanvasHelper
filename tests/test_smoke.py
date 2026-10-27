@@ -110,3 +110,7 @@ def test_17_免安装分发() -> None:
 
 def test_18_一键卸载() -> None:
     _run("[18] 一键卸载（程序 + 使用数据）", smoke.s18_uninstall)
+
+
+def test_19_改名迁移() -> None:
+    _run("[19] 改名迁移（CanvasHelper -> Inferry）", smoke.s19_rename)

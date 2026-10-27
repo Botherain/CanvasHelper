@@ -194,7 +194,7 @@ def build_ics(drafts: list[TodoDraft], calendar_name: str = "Canvas 截止日程
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//CanvasHelper//Canvas Deadline//CN",
+        "PRODID:-//Inferry//Canvas Deadline//CN",
         f"X-WR-CALNAME:{esc(calendar_name)}",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",

@@ -10,8 +10,12 @@ from .paths import PROJECT_DIR, get_logger
 
 log = get_logger()
 
-TASK_SYNC = "CanvasHelper-DailySync"
-TASK_REPORT = "CanvasHelper-WeeklyReport"
+TASK_SYNC = "Inferry-DailySync"
+TASK_REPORT = "Inferry-WeeklyReport"
+
+#: 1.x（CanvasHelper）留下的任务名。改名后它们指向的旧 exe 已经不存在，
+#: 留着只会每天到点静默失败，所以启动时按名字删掉（找不到不算错）。
+LEGACY_TASKS: tuple[str, ...] = ("CanvasHelper-DailySync", "CanvasHelper-WeeklyReport")
 
 
 def _pythonw() -> str:
@@ -24,7 +28,7 @@ def _pythonw() -> str:
 
 
 def _cmd(sub: str) -> str:
-    # 从前是：cmd /c cd /d "<项目目录>" && "<python.exe>" -m canvas_helper ...
+    # 从前是：cmd /c cd /d "<项目目录>" && "<python.exe>" -m inferry ...
     #
     # 两个毛病，一起治：
     #
@@ -122,6 +126,31 @@ def remove(name: str) -> tuple[bool, str]:
     return _run(["schtasks", "/Delete", "/TN", name, "/F"])
 
 
+def _missing_task(msg: str) -> bool:
+    """schtasks 说「找不到这个任务」的几种写法（中英文系统各不同）。"""
+    text = (msg or "").lower()
+    return "cannot find" in text or "找不到" in text or "does not exist" in text
+
+
+def cleanup_legacy() -> list[str]:
+    """删除 1.x 留下的 ``CanvasHelper-*`` 任务，返回实际删掉的名字。
+
+    改名后旧任务里的 exe 路径已经不存在，不删的话「任务计划程序」里会永远留两条
+    跑一次失败一次的僵尸任务。删掉之后，``state.schedule_cmd`` 里记的旧命令自然
+    与当前不一致，1.3.2 起就有的自愈逻辑会按新名字、新路径重建。
+    """
+    removed: list[str] = []
+    for name in LEGACY_TASKS:
+        ok, msg = remove(name)
+        if ok:
+            removed.append(name)
+        elif not _missing_task(msg):
+            log.warning("清理旧计划任务 %s 失败：%s", name, msg)
+    if removed:
+        log.info("已清理旧版计划任务：%s", "、".join(removed))
+    return removed
+
+
 def status() -> dict[str, dict]:
     """只查询本程序自己的两个任务，避免全表 /V 查询拖慢启动。"""
     out: dict[str, dict] = {}
@@ -152,7 +181,7 @@ def disable() -> tuple[bool, str]:
     ok = True
     for t in (TASK_SYNC, TASK_REPORT):
         o, m = remove(t)
-        missing = ("cannot find" in (m or "").lower()) or ("找不到" in (m or ""))
+        missing = _missing_task(m)
         ok = ok and (o or missing)
         msgs.append(f"{t}: {'已删除' if o else ('本就不存在' if missing else m)}")
     return ok, "\n".join(msgs)

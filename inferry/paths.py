@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from . import APP_NAME
+
 # 3.9 兼容：datetime.UTC 这个常量是 3.11 才加的，旧解释器上取不到。
 UTC = timezone.utc
 
@@ -25,7 +27,45 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 
 # 可写数据目录：配置、状态、日志、排队待办、导出的日历。
 # 与安装位置解耦，换机器、换安装盘符、打包分发都不受影响。
-DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "CanvasHelper"
+_BASE_DIR = Path(os.environ.get("LOCALAPPDATA") or str(Path.home()))
+
+#: 2.0.0 从 CanvasHelper 改名而来。旧目录名只用于「一次性迁移」与「回滚」，
+#: 任何写操作都不要再往它里面放东西。
+LEGACY_APP_NAME = "CanvasHelper"
+LEGACY_DATA_DIR = _BASE_DIR / LEGACY_APP_NAME
+
+
+def _migrate_data_dir(base: Path) -> tuple[Path, str]:
+    """决定可写数据目录，并把 1.x 的 ``%LOCALAPPDATA%\\CanvasHelper`` 搬过来。
+
+    规则（宁可少搬，也绝不覆盖、绝不半迁移）：
+
+    * 旧目录在、新目录不在 -> 整目录 ``rename`` 到新名字，登录态与配色跟着走；
+    * 两个都在 -> 用**新**目录，旧目录原样留着（回滚时还要用），记一条警告；
+    * 搬不动（旧版本还开着、文件被锁）-> 本次**继续用旧目录**，只记一条错误，
+      提示用户关掉程序后重试。这样最差也是「名字没换成」，而不是「看起来配置丢了」。
+
+    返回 ``(要用的目录, 迁移结果)``，结果是 ``""`` / ``"moved"`` / ``"both"`` /
+    ``"failed: <原因>"``，由 :func:`ensure_dirs` 写进日志。
+    """
+    new = base / APP_NAME
+    legacy = base / LEGACY_APP_NAME
+    if not legacy.is_dir():
+        return new, ""
+    if new.exists():
+        return new, "both"
+    try:
+        legacy.rename(new)  # 同一个 LOCALAPPDATA 卷内，等价于原子改名
+    except OSError as exc:
+        return legacy, f"failed: {exc}"
+    return new, "moved"
+
+
+# 在 import 时就把目录定下来：CONFIG_PATH 等常量都是模块级的，而 schoollist 等
+# 模块还会 `from .paths import DATA_DIR` 自行拼路径——若改在 ensure_dirs() 里再
+# 切换目录，那些已经算好的常量就会指错地方。所以「改名迁移」是本模块唯一允许
+# 在 import 阶段动磁盘的动作，且只在「旧目录存在、新目录不存在」时发生。
+DATA_DIR, _MIGRATION_NOTE = _migrate_data_dir(_BASE_DIR)
 
 CONFIG_PATH = DATA_DIR / "config.json"
 STATE_PATH = DATA_DIR / "state.json"
@@ -100,7 +140,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "selected_courses": [],
     "categories": DEFAULT_CATEGORIES,
     # 下载后的压缩包：内容包（讲义/代码）自动解压，数据包（ipynb 要读的
-    # 原始数据）原样保留。判定逻辑见 canvas_helper/extract.py。
+    # 原始数据）原样保留。判定逻辑见 inferry/extract.py。
     "archives": {
         "extract": True,
         # 跳过 __MACOSX / ._ / .DS_Store 这类 macOS 解压垃圾
@@ -194,7 +234,7 @@ _DEFAULT_STATE: dict[str, Any] = {
 def get_logger() -> logging.Logger:
     global _logger
     if _logger is None:
-        logger = logging.getLogger("canvas_helper")
+        logger = logging.getLogger("inferry")
         if not logger.handlers:
             logger.setLevel(logging.INFO)
             fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
@@ -470,3 +510,21 @@ def ensure_dirs() -> None:
         with suppress(OSError):
             d.mkdir(parents=True, exist_ok=True)
     _bootstrap()  # 建目录 + 搬 v1.0 之前留在源码目录的旧数据（只在入口执行）
+    _log_migration()
+
+
+def _log_migration() -> None:
+    """把 import 时做的「数据目录改名迁移」结果写进日志（入口处调一次）。"""
+    if not _MIGRATION_NOTE:
+        return
+    log = get_logger()
+    if _MIGRATION_NOTE == "moved":
+        log.info("已从旧数据目录迁移：%s -> %s（配置、登录态与课程配色都跟着走）",
+                 LEGACY_DATA_DIR, DATA_DIR)
+    elif _MIGRATION_NOTE == "both":
+        log.warning("新旧数据目录同时存在，使用 %s；旧目录 %s 原样保留（回滚时还要用，"
+                    "确认不再需要后可手动删除）", DATA_DIR, LEGACY_DATA_DIR)
+    else:
+        log.warning("旧数据目录迁移失败（%s）：本次继续使用 %s。"
+                    "请关闭其它正在运行的程序后重新启动一次，迁移会自动重试。",
+                    _MIGRATION_NOTE, DATA_DIR)

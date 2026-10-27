@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 
 # Windows 控制台可能是 cp1252/GBK，中文 print 会直接 UnicodeEncodeError。
-# 必须在 import canvas_helper 之前切到 UTF-8，保证在任何控制台（含 CI）都能跑。
+# 必须在 import inferry 之前切到 UTF-8，保证在任何控制台（含 CI）都能跑。
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
@@ -27,8 +27,8 @@ if hasattr(sys.stdout, "reconfigure"):
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from canvas_helper.canvas_api import Course, Item, decode_name  # noqa: E402
-from canvas_helper.classify import (  # noqa: E402
+from inferry.canvas_api import Course, Item, decode_name  # noqa: E402
+from inferry.classify import (  # noqa: E402
     CategoryDirs,
     anchor_key,
     category_of,
@@ -37,8 +37,8 @@ from canvas_helper.classify import (  # noqa: E402
     resolve_dir,
     sanitize,
 )
-from canvas_helper.coursecode import course_code, dir_key  # noqa: E402
-from canvas_helper.deskbox import (  # noqa: E402
+from inferry.coursecode import course_code, dir_key  # noqa: E402
+from inferry.deskbox import (  # noqa: E402
     TodoDraft,
     build_drafts,
     dedupe_completed,
@@ -50,7 +50,7 @@ from canvas_helper.deskbox import (  # noqa: E402
     recolor_items,
     reorder_by_due,
 )
-from canvas_helper.paths import DEFAULT_CONFIG, load_config, to_local  # noqa: E402
+from inferry.paths import DEFAULT_CONFIG, load_config, to_local  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -275,7 +275,7 @@ def s5_drafts(c: Course, res, cfg: dict) -> None:
           d0.due == datetime.fromisoformat("2026-11-20T15:59:00+00:00"), str(d0.due))
     # 3.11 之前 fromisoformat 不认结尾的 Z，Canvas 恰好爱用这种写法；解析不出来
     # 就等于「这条作业没有截止时间」，且不会报错——只能靠断言盯着。
-    from canvas_helper.deskbox import _parse_due
+    from inferry.deskbox import _parse_due
 
     check("Z 结尾的截止时间也能解析",
           _parse_due("2026-11-20T15:59:00Z")
@@ -416,7 +416,7 @@ def s5b_completed() -> None:
 
 
 def s5c_cleaner() -> None:
-    from canvas_helper import cleaner
+    from inferry import cleaner
 
     print("\n[5c] 一键清理缓存（只扫描，不删除）")
     targets = cleaner.scan()
@@ -563,7 +563,7 @@ def s5d_sort_and_color() -> None:
 
 
 def s6_plan() -> None:
-    from canvas_helper.filesync import build_plan, describe
+    from inferry.filesync import build_plan, describe
 
     print("\n[6] 下载计划（dry-run，不写盘）")
     tmpdir = Path(tempfile.mkdtemp(prefix="ch_plan_"))
@@ -607,7 +607,7 @@ def s6_plan() -> None:
 
 
 def s6b_local() -> None:
-    from canvas_helper.filesync import build_plan
+    from inferry.filesync import build_plan
 
     print("\n[6b] 本地已有内容的识别（不重复下载 / 纯数字名不误判）")
     tmp2 = Path(tempfile.mkdtemp(prefix="ch_anchor_"))
@@ -638,7 +638,7 @@ def s6b_local() -> None:
 
 
 def s6c_rename() -> None:
-    from canvas_helper.filesync import build_plan
+    from inferry.filesync import build_plan
 
     print("\n[6c] 改名后缀 (1)/(2) 不会导致重复下载")
     tmp3 = Path(tempfile.mkdtemp(prefix="ch_rename_"))
@@ -674,7 +674,7 @@ def s6c_rename() -> None:
 
 
 def s7_extras(c: Course, drafts: list) -> None:
-    from canvas_helper.extras import build_ics, update_grade_file, weekly_report
+    from inferry.extras import build_ics, update_grade_file, weekly_report
 
     print("\n[7] 附加功能：GradeNeed / .ics / 每周摘要")
     gdir = Path(tempfile.mkdtemp(prefix="ch_grade_"))
@@ -706,8 +706,8 @@ def s7_extras(c: Course, drafts: list) -> None:
 
 
 def s8_auth() -> None:
-    from canvas_helper import paths as _paths
-    from canvas_helper.runner import _relogin_headless
+    from inferry import paths as _paths
+    from inferry.runner import _relogin_headless
 
     print("\n[8] 登录过期不再静默失败")
     check("默认弹窗自愈", DEFAULT_CONFIG["auth"]["popup_on_expiry"] is True)
@@ -727,7 +727,7 @@ def s8_auth() -> None:
 
         # 真正的契约：后台同步发现过期 -> 必须置 auth_required 并留下标记，
         # 而不是只往 sync.log 里丢一行没人看的 warning
-        from canvas_helper.runner import run_sync
+        from inferry.runner import run_sync
 
         class _DeadSession:
             """登录态已失效的会话桩。"""
@@ -769,7 +769,7 @@ def s8_auth() -> None:
             return self.ok
 
     # 会话判定：0 = 服务（没有桌面），1+ = 交互会话
-    from canvas_helper.runner import _has_interactive_session, _probe_session_id
+    from inferry.runner import _has_interactive_session, _probe_session_id
     check("会话 0（服务）判为不可见", _has_interactive_session(0) is False)
     check("会话 1（交互）判为可见", _has_interactive_session(1) is True)
     check("会话 4（RDP / 多会话）判为可见", _has_interactive_session(4) is True)
@@ -780,7 +780,7 @@ def s8_auth() -> None:
     _log: list[str] = []
     say = _log.append
     env_bak = os.environ.get("SESSIONNAME")
-    import canvas_helper.runner as _runner
+    import inferry.runner as _runner
 
     orig_probe = _runner._has_interactive_session
     try:
@@ -830,7 +830,7 @@ def s8_auth() -> None:
 
 
 def s9_packaging() -> None:
-    from canvas_helper import __version__ as _ver
+    from inferry import __version__ as _ver
 
     print("\n[9] 打包元数据 pyproject.toml")
     pt_path = ROOT / "pyproject.toml"
@@ -846,33 +846,36 @@ def s9_packaging() -> None:
           'target-version = "py39"' in pt and 'python_version = "3.10"' in pt)
     check("依赖与原 requirements 同源",
           '"playwright>=1.49"' in pt and '"tzdata>=2024.1"' in pt)
-    check("控制台入口指向 __main__", "canvas_helper.__main__:main" in pt)
-    check("GUI 入口点存在", "canvas_helper.gui:main" in pt)
-    check("只打包 canvas_helper", 'packages = ["canvas_helper"]' in pt)
+    check("控制台入口指向 __main__", "inferry.__main__:main" in pt)
+    check("GUI 入口点存在", "inferry.gui:main" in pt)
+    check("只打包 inferry", 'packages = ["inferry"]' in pt)
+    check("包名与品牌一致（2.0.0 改名）", 'name = "inferry"' in pt)
+    check("保留 1.x 的命令名别名（老脚本升级后不炸）",
+          "canvas-helper = " in pt and "canvas-helper-gui = " in pt)
     check("声明 MIT 且 LICENSE 存在",
           'license = "MIT"' in pt and (ROOT / "LICENSE").is_file())
     check("setup.py 垫片存在（旧 pip 的 editable 安装只认它）",
           (ROOT / "setup.py").is_file())
-    spec = ROOT / "CanvasHelper.spec"
+    spec = ROOT / "Inferry.spec"
     spec_txt = spec.read_text(encoding="utf-8") if spec.is_file() else ""
     check("打包 spec 入库并带上 playwright driver 与 tzdata",
           "collect_all('playwright')" in spec_txt
           and "collect_data_files('tzdata')" in spec_txt, str(spec))
     # v1.2.0 的 exe 就是这么坏的：分析器只搜 scripts\，而 editable 安装不往
-    # sys.path 加目录，于是 canvas_helper 整个没进包，构建却一路绿灯。
+    # sys.path 加目录，于是 inferry 整个没进包，构建却一路绿灯。
     check("打包 spec 把仓库根目录放进 pathex",
           "pathex = [str(HERE)]" in spec_txt and "pathex=pathex" in spec_txt)
     check("推 tag 自动发布",
           (ROOT / ".github" / "workflows" / "release.yml").is_file())
     # 3.9 地板：datetime.UTC 是 3.11 才有的常量。mypy 按 3.10 检查抓不到它，
     # 只有真机 3.9 会炸——所以本地静态扫一遍，别等 CI 才发现。
-    offenders = [p.name for p in sorted(ROOT.glob("canvas_helper/*.py"))
+    offenders = [p.name for p in sorted(ROOT.glob("inferry/*.py"))
                  if re.search(r"from datetime import[^\n]*\bUTC\b",
                               p.read_text(encoding="utf-8"))]
     check("没有用到 3.11 才有的 datetime.UTC", not offenders, str(offenders))
     # 静默回归：状态栏若排在标签页之后 pack，会被 notebook 的请求高度（设置页
     # 32 行撑出的 760px）挤到 3px——进度条与状态文字直接看不见，但不报任何错。
-    gui_src = (ROOT / "canvas_helper" / "gui.py").read_text(encoding="utf-8")
+    gui_src = (ROOT / "inferry" / "gui.py").read_text(encoding="utf-8")
     check("状态栏先于标签页 pack（否则进度条被挤掉）",
           gui_src.find("bottom.pack(") < gui_src.find("self.nb.pack("))
     # 更新公告窗是从 _pump 里弹的：若在里面 wait_window() 开嵌套事件循环，
@@ -888,8 +891,8 @@ def s9_packaging() -> None:
           set(bats) <= {"uninstall.bat"}, str(bats))
     check("仓库里没有 make_shortcut.ps1（快捷方式改由界面按钮创建）",
           not (ROOT / "scripts" / "make_shortcut.ps1").exists())
-    pyw = ROOT / "CanvasHelper.pyw"
-    check("源码双击入口 CanvasHelper.pyw 存在", pyw.is_file())
+    pyw = ROOT / "Inferry.pyw"
+    check("源码双击入口 Inferry.pyw 存在", pyw.is_file())
     if pyw.is_file():
         pyw_src = pyw.read_text(encoding="utf-8")
         try:
@@ -897,20 +900,20 @@ def s9_packaging() -> None:
             ok_pyw = True
         except SyntaxError:
             ok_pyw = False
-        check("CanvasHelper.pyw 语法正确", ok_pyw)
-        check("CanvasHelper.pyw 启动失败时会弹消息框",
+        check("Inferry.pyw 语法正确", ok_pyw)
+        check("Inferry.pyw 启动失败时会弹消息框",
               "messagebox.showerror" in pyw_src)
     gui_scripts = pt.split("[project.gui-scripts]", 1)
     check("GUI 入口是无控制台的 gui-scripts",
-          len(gui_scripts) == 2 and "canvas-helper-gui" in gui_scripts[1].split("\n[", 1)[0])
+          len(gui_scripts) == 2 and "inferry-gui" in gui_scripts[1].split("\n[", 1)[0])
     check("打包 spec 带 exe 版本资源（文件属性里能看到版本号）",
           "version=VERSION_INFO" in spec_txt and "VSVersionInfo(" in spec_txt)
     release_yml = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     check("zip 里带 README.txt 并校验包内容",
           "dist/README.txt" in release_yml
-          and 'CanvasHelper/CanvasHelper.exe"} - names' in release_yml)
+          and 'Inferry/Inferry.exe"} - names' in release_yml)
     check("Release 正文自动追加「下载哪个文件」指引",
-          "下载哪个文件" in release_yml and "CanvasHelper-v{ver}-win64.zip" in release_yml)
+          "下载哪个文件" in release_yml and "Inferry-v{ver}-win64.zip" in release_yml)
 
     # ---- 一键卸载：脚本入库、编码正确、打包带上 ----
     for name in ("uninstall.bat", "uninstall.ps1"):
@@ -929,7 +932,7 @@ def s9_packaging() -> None:
 def s10_extract() -> None:
     import zipfile
 
-    from canvas_helper import extract
+    from inferry import extract
 
     print("\n[10] 压缩包判定与解压（内容包解 / 数据包留 / 防 zip-slip）")
     cfg = {"extract": True, "skip_junk": True,
@@ -1048,7 +1051,7 @@ def s10_extract() -> None:
 
 
 def s11_tidy() -> None:
-    from canvas_helper import tidy
+    from inferry import tidy
 
     print("\n[11] 讲义整理：先预览再移动（只移动不删除）")
     tmp = Path(tempfile.mkdtemp(prefix="ch_tidy_"))
@@ -1105,9 +1108,9 @@ def s11_tidy() -> None:
 
 
 def s12_discussions() -> None:
-    from canvas_helper import filesync
-    from canvas_helper.canvas_api import CanvasAPI
-    from canvas_helper.filesync import build_plan, execute_plan
+    from inferry import filesync
+    from inferry.canvas_api import CanvasAPI
+    from inferry.filesync import build_plan, execute_plan
 
     print("\n[12] 讨论区：Colab 链接下载 + 帖子快照")
     # 链接解析：colab / github blob / raw 直链，剥 query、去重
@@ -1292,8 +1295,8 @@ def s13_universal() -> None:
 
 def s14_schools() -> None:
     """[14] 院校清单与地址归一化。"""
-    from canvas_helper.schoolpicker import normalize_home
-    from canvas_helper.schools import SCHOOLS, regions, search
+    from inferry.schoolpicker import normalize_home
+    from inferry.schools import SCHOOLS, regions, search
 
     print("\n[14] 院校清单（选学校 -> 进该校的 Canvas）")
     check("清单非空", len(SCHOOLS) > 0, str(len(SCHOOLS)))
@@ -1348,8 +1351,8 @@ def s14_schools() -> None:
 
 def s15_schoollist() -> None:
     """[15] 院校清单的在线更新与本地缓存。"""
-    from canvas_helper import schoollist
-    from canvas_helper.schools import SCHOOLS
+    from inferry import schoollist
+    from inferry.schools import SCHOOLS
 
     print("\n[15] 院校清单在线更新与缓存")
 
@@ -1439,10 +1442,10 @@ def s16_update() -> None:
     import zipfile
     from datetime import timedelta
 
-    from canvas_helper import __version__ as ver
-    from canvas_helper import updater
-    from canvas_helper.__main__ import _SUBMODULES
-    from canvas_helper.paths import now_local
+    from inferry import __version__ as ver
+    from inferry import updater
+    from inferry.__main__ import _SUBMODULES
+    from inferry.paths import now_local
 
     print("\n[16] 版本校验与更新公告")
 
@@ -1467,14 +1470,14 @@ def s16_update() -> None:
     updater.UPDATE_CACHE_PATH = tmp / "update_cache.json"
     updater.UPDATES_DIR = tmp / "updates"
     try:
-        wheel = updater.Asset("canvas_helper-1.4.0-py3-none-any.whl",
+        wheel = updater.Asset("inferry-1.4.0-py3-none-any.whl",
                               "https://example.invalid/a.whl", 1000)
-        z64 = updater.Asset("CanvasHelper-v1.4.0-win64.zip",
+        z64 = updater.Asset("Inferry-v1.4.0-win64.zip",
                             "https://example.invalid/a.zip", 4242, sha256="ab" * 32)
 
         def rel(version: str, notes: str = "", assets: tuple = ()) -> updater.Release:
             return updater.Release(
-                tag=f"v{version}", version=version, title=f"CanvasHelper v{version}",
+                tag=f"v{version}", version=version, title=f"Inferry v{version}",
                 notes=notes, url=f"https://example.invalid/releases/v{version}",
                 published_at="2026-11-02T10:00:00Z", assets=list(assets),
             )
@@ -1581,15 +1584,15 @@ def s16_update() -> None:
 
         # --- 资产挑选 ---
         check("没有 zip 时不给资产", updater.pick_asset(rel("1.4.0", assets=(wheel,))) is None)
-        plain = updater.Asset("CanvasHelper-1.4.0.zip", "https://example.invalid/b.zip", 10)
+        plain = updater.Asset("Inferry-1.4.0.zip", "https://example.invalid/b.zip", 10)
         picked = updater.pick_asset(rel("1.4.0", assets=(wheel, plain, z64)))
         check("多个 zip 时优先 win64", picked is not None and picked.name == z64.name,
               repr(picked))
 
         # --- 一键替换的安全阀 ---
-        app = tmp / "app" / "CanvasHelper"
+        app = tmp / "app" / "Inferry"
         (app / "_internal").mkdir(parents=True)
-        (app / "CanvasHelper.exe").write_bytes(b"MZ")
+        (app / "Inferry.exe").write_bytes(b"MZ")
         check("标准单目录构建可自动替换", updater.safe_to_replace(app))
         check("目录里没有 exe 就不替换", not updater.safe_to_replace(tmp / "app"))
         check("盘符 / 家目录不替换", not updater.safe_to_replace(Path.home()))
@@ -1599,13 +1602,13 @@ def s16_update() -> None:
         (app / "我的笔记.txt").unlink()
 
         # --- 解压（含 zip-slip）+ 替换脚本 ---
-        zpath = tmp / "CanvasHelper-v1.4.0-win64.zip"
+        zpath = tmp / "Inferry-v1.4.0-win64.zip"
         with zipfile.ZipFile(zpath, "w") as zf:
-            zf.writestr("CanvasHelper/CanvasHelper.exe", b"MZ")
-            zf.writestr("CanvasHelper/_internal/lib.dll", b"dll")
+            zf.writestr("Inferry/Inferry.exe", b"MZ")
+            zf.writestr("Inferry/_internal/lib.dll", b"dll")
             zf.writestr("../evil.txt", b"x")
         new_dir = updater.stage(zpath, "1.4.0")
-        check("解压出 exe 所在目录", (new_dir / "CanvasHelper.exe").is_file(), str(new_dir))
+        check("解压出 exe 所在目录", (new_dir / "Inferry.exe").is_file(), str(new_dir))
         check("拒绝目录穿越",
               not (tmp / "evil.txt").exists() and not (tmp / "updates" / "evil.txt").exists())
         check("解压结果可自动替换", updater.safe_to_replace(app, new_dir))
@@ -1618,12 +1621,12 @@ def s16_update() -> None:
               "$waitPid = 4321" in text and "Wait-Process -Id $waitPid" in text, text[:160])
         check("脚本镜像替换", "robocopy" in text.lower() and "/MIR" in text)
         check("脚本按新版本里的 exe 名重启",
-              f"$start = '{app / 'CanvasHelper.exe'}'" in text
+              f"$start = '{app / 'Inferry.exe'}'" in text
               and "Start-Process -FilePath $start" in text, text[:300])
         check("脚本里的路径带引号（中文路径也安全）", f"'{app}'" in text, text[:160])
 
         # --- 一键清理能看到并删掉更新包 ---
-        from canvas_helper import cleaner
+        from inferry import cleaner
 
         targets = {t.key: t for t in cleaner.scan()}
         check("一键清理能看见已下载的更新包",
@@ -1655,7 +1658,7 @@ def s16_update() -> None:
           <= set(example.get("update") or {}), str(example.get("update")))
     check("默认开启启动检查", DEFAULT_CONFIG["update"]["check_on_start"] is True,
           str(DEFAULT_CONFIG["update"]))
-    gui_src = (ROOT / "canvas_helper" / "gui.py").read_text(encoding="utf-8")
+    gui_src = (ROOT / "inferry" / "gui.py").read_text(encoding="utf-8")
     check("公告窗支持「本版新功能」模式（已是最新也能看）",
           "just_updated: bool = False" in gui_src and "current_notes" in gui_src)
     check("升级后首次启动会弹一次本版说明",
@@ -1664,8 +1667,8 @@ def s16_update() -> None:
 
 def s17_install_ux() -> None:
     """[17] 免安装分发：快捷方式、替换原因、计划任务命令。"""
-    from canvas_helper import paths as _paths
-    from canvas_helper import scheduler, shortcut, updater
+    from inferry import paths as _paths
+    from inferry import scheduler, shortcut, updater
 
     print("\n[17] 免安装分发（快捷方式 / 一键更新前置条件 / 计划任务）")
 
@@ -1673,33 +1676,33 @@ def s17_install_ux() -> None:
     try:
         root = tmp / "app"
         (root / "docs" / "icons").mkdir(parents=True)
-        (root / "docs" / "icons" / "canvashelper.ico").write_bytes(b"\x00")
-        (root / "CanvasHelper.pyw").write_text("print(1)", encoding="utf-8")
+        (root / "docs" / "icons" / "inferry.ico").write_bytes(b"\x00")
+        (root / "Inferry.pyw").write_text("print(1)", encoding="utf-8")
 
         src_t = shortcut.target_for(project_dir=root, frozen=False)
         check("源码版快捷方式指向 python 解释器",
               Path(src_t.path).name.lower() in ("pythonw.exe", "python.exe"), src_t.path)
-        check("源码版参数是 CanvasHelper.pyw",
-              src_t.args.strip('"').endswith("CanvasHelper.pyw"), src_t.args)
-        check("源码版带应用图标", src_t.icon.endswith("canvashelper.ico,0"), src_t.icon)
+        check("源码版参数是 Inferry.pyw",
+              src_t.args.strip('"').endswith("Inferry.pyw"), src_t.args)
+        check("源码版带应用图标", src_t.icon.endswith("inferry.ico,0"), src_t.icon)
         check("源码版工作目录是项目根",
               Path(src_t.workdir) == root.resolve(), src_t.workdir)
 
-        (root / "CanvasHelper.pyw").unlink()
-        (root / "docs" / "icons" / "canvashelper.ico").unlink()
+        (root / "Inferry.pyw").unlink()
+        (root / "docs" / "icons" / "inferry.ico").unlink()
         fallback = shortcut.target_for(project_dir=root, frozen=False)
-        check("没有 .pyw 时退回 -m canvas_helper gui",
-              "-m canvas_helper gui" in fallback.args, fallback.args)
+        check("没有 .pyw 时退回 -m inferry gui",
+              "-m inferry gui" in fallback.args, fallback.args)
         check("没有图标文件时不设图标", fallback.icon == "", fallback.icon)
 
-        exe = tmp / "bin" / "CanvasHelper.exe"
+        exe = tmp / "bin" / "Inferry.exe"
         exe.parent.mkdir(parents=True)
         exe.write_bytes(b"MZ")
         frozen_t = shortcut.target_for(exe=exe, frozen=True)
         check("打包版快捷方式直接指向 exe",
               Path(frozen_t.path) == exe.resolve(), frozen_t.path)
         check("打包版无参数、图标取 exe 自带资源",
-              frozen_t.args == "" and frozen_t.icon.endswith("CanvasHelper.exe,0"),
+              frozen_t.args == "" and frozen_t.icon.endswith("Inferry.exe,0"),
               f"{frozen_t.args!r} / {frozen_t.icon!r}")
 
         script = shortcut.build_ps1(src_t)
@@ -1708,15 +1711,15 @@ def s17_install_ux() -> None:
               "GetFolderPath('Desktop')" in script)
         check("快捷方式脚本里的路径带引号", f"'{root.resolve()}'" in script, script[:160])
         check("快捷方式脚本会落盘 .lnk",
-              "$lnk.Save()" in script and "CanvasHelper.lnk" in script)
+              "$lnk.Save()" in script and "Inferry.lnk" in script)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
     tmp2 = Path(tempfile.mkdtemp(prefix="ch_why_"))
     try:
-        app = tmp2 / "CanvasHelper"
+        app = tmp2 / "Inferry"
         (app / "_internal").mkdir(parents=True)
-        (app / "CanvasHelper.exe").write_bytes(b"MZ")
+        (app / "Inferry.exe").write_bytes(b"MZ")
         check("标准安装目录可以自动替换", updater.why_not_replace(app) == "",
               updater.why_not_replace(app))
         check("目录里没有 exe 时说明原因",
@@ -1732,14 +1735,17 @@ def s17_install_ux() -> None:
         shutil.rmtree(tmp2, ignore_errors=True)
 
     # --- 跨版本改名（CanvasHelper.exe -> Inferry.exe）不能把程序更新丢 ---
+    # 这正是 1.3.4 -> 2.0.0 的真实场景：旧目录里是 CanvasHelper.exe，新包里是 Inferry.exe。
     tmp3 = Path(tempfile.mkdtemp(prefix="ch_rename_"))
     try:
         old_app = tmp3 / "CanvasHelper"
         (old_app / "_internal").mkdir(parents=True)
-        (old_app / "CanvasHelper.exe").write_bytes(b"MZ")
+        old_exe = old_app / "CanvasHelper.exe"
+        old_exe.write_bytes(b"MZ")
         staged = tmp3 / "stage" / "Inferry"
         (staged / "_internal").mkdir(parents=True)
-        (staged / "Inferry.exe").write_bytes(b"MZ" * 100)
+        new_exe = staged / "Inferry.exe"
+        new_exe.write_bytes(b"MZ" * 100)
 
         found = updater.find_exe(staged)
         check("改名后仍能认出主程序 exe",
@@ -1749,15 +1755,15 @@ def s17_install_ux() -> None:
         check("改名后也能通过安全阀", updater.safe_to_replace(old_app, staged))
 
         script = updater.write_apply_script(
-            7777, old_app, staged, script_path=tmp3 / "apply.ps1")
+            7777, old_app, staged, exe_path=old_exe, script_path=tmp3 / "apply.ps1")
         text = script.read_text(encoding="utf-8-sig")
         check("替换后启动的是新 exe（旧目录里的新文件名）",
               f"$start = '{old_app / 'Inferry.exe'}'" in text, text[:300])
         check("旧名字只作兜底",
-              f"$fallback = '{old_app / 'CanvasHelper.exe'}'" in text
+              f"$fallback = '{old_exe}'" in text
               and "Start-Process -FilePath $start" in text, text[:300])
         check("不再把旧文件名当成唯一重启目标",
-              f"Start-Process -FilePath '{old_app / 'CanvasHelper.exe'}'" not in text)
+              f"Start-Process -FilePath '{old_exe}'" not in text)
     finally:
         shutil.rmtree(tmp3, ignore_errors=True)
 
@@ -1801,7 +1807,7 @@ def s18_uninstall() -> None:
     """[18] 一键卸载：计划清单、自删保护，以及真的跑一遍 uninstall.ps1（沙箱）。"""
     import subprocess
 
-    from canvas_helper import uninstall as un
+    from inferry import uninstall as un
 
     print("\n[18] 一键卸载（程序 + 使用数据，课程文件不动）")
 
@@ -1811,20 +1817,20 @@ def s18_uninstall() -> None:
         (data / "profile").mkdir(parents=True)
         (data / "config.json").write_text('{"classes_root": "D:\\\\Courses"}', encoding="utf-8")
         (data / "state.json").write_text("{}", encoding="utf-8")
-        app = tmp / "app" / "CanvasHelper"
+        app = tmp / "app" / "Inferry"
         (app / "_internal").mkdir(parents=True)
-        (app / "CanvasHelper.exe").write_bytes(b"MZ")
-        lnk = tmp / "desk" / "CanvasHelper.lnk"
+        (app / "Inferry.exe").write_bytes(b"MZ")
+        lnk = tmp / "desk" / "Inferry.lnk"
         lnk.parent.mkdir()
         lnk.write_bytes(b"\x00")
 
         # --- 计划与清单（纯计算，不碰真实数据目录） ---
-        p = un.Plan(app_dir=app, data_dir=data, tasks=un.TASKS, shortcut=lnk,
+        p = un.Plan(app_dir=app, data_dirs=[data], tasks=un.TASKS, shortcuts=[lnk],
                     classes_root="D:\\Courses")
         text = un.render(p)
         check("清单包含程序目录", str(app) in text, text[:120])
         check("清单包含使用数据与体积", str(data) in text and "MB" in text, text[:120])
-        check("清单包含两个计划任务", all(t in text for t in un.TASKS), text[:160])
+        check("清单包含新旧四条计划任务", all(t in text for t in un.TASKS), text[:160])
         check("清单包含桌面快捷方式", lnk.name in text, text[:160])
         check("清单写明课程文件不删",
               "不会被删除" in text and "D:\\Courses" in text, text[-160:])
@@ -1834,7 +1840,7 @@ def s18_uninstall() -> None:
               and app.exists() and data.exists())
 
         rep = un.run(dry_run=True, keep_data=True, app_dir=app)
-        check("keep_data 时清单里不列使用数据", rep["data"] == "", str(rep))
+        check("keep_data 时清单里不列使用数据", rep["data"] == [], str(rep))
 
         # --- 父目录自删保护：只剩我们自己的文件才允许 ---
         extract = tmp / "extract"
@@ -1862,9 +1868,9 @@ def s18_uninstall() -> None:
         (sandbox / "README.txt").write_text("x", encoding="utf-8")
         (sandbox / "keep.txt").write_text("keep", encoding="utf-8")  # 阻止连目录自删
 
-        app2 = tmp / "app2" / "CanvasHelper"
+        app2 = tmp / "app2" / "Inferry"
         (app2 / "_internal").mkdir(parents=True)
-        (app2 / "CanvasHelper.exe").write_bytes(b"MZ")
+        (app2 / "Inferry.exe").write_bytes(b"MZ")
         data2 = tmp / "data2"
         (data2 / "profile").mkdir(parents=True)
         data2.joinpath("config.json").write_text(
@@ -1888,9 +1894,9 @@ def s18_uninstall() -> None:
               (proc.stdout or "")[-200:])
 
         # --- -KeepData：只删程序，保留数据 ---
-        app3 = tmp / "app3" / "CanvasHelper"
+        app3 = tmp / "app3" / "Inferry"
         (app3 / "_internal").mkdir(parents=True)
-        (app3 / "CanvasHelper.exe").write_bytes(b"MZ")
+        (app3 / "Inferry.exe").write_bytes(b"MZ")
         data3 = tmp / "data3"
         (data3 / "profile").mkdir(parents=True)
         data3.joinpath("state.json").write_text("{}", encoding="utf-8")
@@ -1907,6 +1913,112 @@ def s18_uninstall() -> None:
               f"rc={proc2.returncode} app={app3.exists()} data={data3.exists()}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def s19_rename() -> None:
+    """[19] 2.0.0 改名迁移：数据目录、旧计划任务、旧快捷方式、卸载器认旧名。"""
+    from inferry import paths as _paths
+    from inferry import scheduler, shortcut, uninstall
+
+    print("\n[19] 改名迁移（CanvasHelper -> Inferry）")
+
+    base = Path(tempfile.mkdtemp(prefix="ch_rename_data_"))
+    try:
+        # --- 数据目录迁移：旧有 / 新无 -> 搬过来，内容一字不动 ---
+        # 全部在临时 base 里做，不碰本机真实的 %LOCALAPPDATA%
+        old = base / "CanvasHelper"
+        (old / "profile").mkdir(parents=True)
+        (old / "config.json").write_text('{"canvas_home": "https://x.edu"}', encoding="utf-8")
+        (old / "session.json").write_text('{"cookies": 1}', encoding="utf-8")
+
+        new, note = _paths._migrate_data_dir(base)
+        check("旧数据目录存在、新目录不存在时整目录搬过来",
+              new == base / "Inferry" and new.is_dir() and not old.exists(), f"{new} {note}")
+        check("迁移结果记为 moved", note == "moved", note)
+        check("配置与登录态跟着走",
+              (new / "config.json").is_file() and (new / "session.json").is_file()
+              and (new / "profile").is_dir())
+
+        # 两个目录都在 -> 用新目录，旧目录原样保留（绝不覆盖，回滚还要用）
+        old.mkdir(parents=True, exist_ok=True)  # 模拟「回滚时把旧目录又放回去了」
+        (old / "config.json").write_text('{"canvas_home": "https://old.edu"}',
+                                         encoding="utf-8")
+        kept_new, note2 = _paths._migrate_data_dir(base)
+        check("新旧目录同时存在时用新目录", kept_new == new, str(kept_new))
+        check("新旧目录同时存在时记为 both（不改旧目录）", note2 == "both", note2)
+        check("旧目录不会被覆盖或删除",
+              (old / "config.json").read_text(encoding="utf-8")
+              .endswith('"https://old.edu"}'))
+
+        # 都没有 -> 直接用新名字，不报错
+        empty = base / "empty"
+        empty.mkdir()
+        fresh, note3 = _paths._migrate_data_dir(empty)
+        check("全新安装直接用新目录",
+              fresh == empty / "Inferry" and note3 == "", f"{fresh} {note3}")
+
+        # 搬不动（模拟文件被旧版本占用）-> 继续用旧目录，下次启动重试
+        blocked = base / "blocked"
+        old2 = blocked / "CanvasHelper"
+        old2.mkdir(parents=True)
+        (old2 / "config.json").write_text("{}", encoding="utf-8")
+        orig_rename = Path.rename
+
+        def _boom(self: Path, target: Path, *args: object, **kwargs: object) -> Path:
+            raise OSError("文件被占用")
+
+        Path.rename = _boom  # type: ignore[method-assign]
+        try:
+            keep, note4 = _paths._migrate_data_dir(blocked)
+        finally:
+            Path.rename = orig_rename  # type: ignore[method-assign]
+        check("搬不动时继续用旧目录（不让「配置看起来丢了」）",
+              keep == old2 and note4.startswith("failed"), f"{keep} {note4}")
+        check("搬不动时旧目录仍在、新目录不会被写出来",
+              old2.is_dir() and not (blocked / "Inferry").exists())
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+    # --- 常量与旧名字：改名不能把「认旧名」的兜底一起删掉 ---
+    check("数据目录常量指向新名字", _paths.DATA_DIR.name == "Inferry", str(_paths.DATA_DIR))
+    check("旧数据目录仍被记住（回滚与迁移用）",
+          _paths.LEGACY_DATA_DIR.name == "CanvasHelper", str(_paths.LEGACY_DATA_DIR))
+    check("计划任务换成新名字",
+          scheduler.TASK_SYNC == "Inferry-DailySync"
+          and scheduler.TASK_REPORT == "Inferry-WeeklyReport",
+          f"{scheduler.TASK_SYNC} / {scheduler.TASK_REPORT}")
+    check("计划任务保留旧名字清单（启动时清理）",
+          set(scheduler.LEGACY_TASKS) == {"CanvasHelper-DailySync", "CanvasHelper-WeeklyReport"},
+          str(scheduler.LEGACY_TASKS))
+    check("快捷方式换成新名字", shortcut.LNK_NAME == "Inferry", shortcut.LNK_NAME)
+    check("快捷方式保留旧名字（死链清理）",
+          shortcut.LEGACY_LNK_NAME == "CanvasHelper.lnk", shortcut.LEGACY_LNK_NAME)
+    check("卸载器同时认新旧任务名",
+          {"Inferry-DailySync", "Inferry-WeeklyReport",
+           "CanvasHelper-DailySync", "CanvasHelper-WeeklyReport"} <= set(uninstall.TASKS),
+          str(uninstall.TASKS))
+    check("卸载器同时认新旧快捷方式",
+          set(uninstall.LNK_NAMES) == {"Inferry.lnk", "CanvasHelper.lnk"},
+          str(uninstall.LNK_NAMES))
+
+    # --- 脚本内容：清理旧任务的调用点确实在启动路径上、且删除命令带 /F ---
+    gui_src = (ROOT / "inferry" / "gui.py").read_text(encoding="utf-8")
+    check("GUI 启动时会清理旧任务与旧快捷方式",
+          "_cleanup_renamed_leftovers" in gui_src
+          and "scheduler.cleanup_legacy()" in gui_src
+          and "shortcut.remove_legacy()" in gui_src)
+    sched_src = (ROOT / "inferry" / "scheduler.py").read_text(encoding="utf-8")
+    check("清理旧任务用 schtasks /Delete … /F",
+          '"/Delete"' in sched_src and '"/F"' in sched_src)
+    ps1 = (ROOT / "uninstall.ps1").read_text(encoding="utf-8-sig")
+    check("卸载脚本默认任务名含新旧四条",
+          all(name in ps1 for name in ("Inferry-DailySync", "Inferry-WeeklyReport"))
+          and ps1.count("legacyName") >= 2, ps1[:200])
+    check("卸载脚本默认数据目录含新旧两处",
+          "'Inferry', $script:legacyName" in ps1)
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    check("README 写明从 1.3.4 升级与回滚",
+          "1.3.4" in readme and "CanvasHelper" in readme and "回滚" in readme)
 
 
 def main() -> int:
@@ -1938,6 +2050,7 @@ def main() -> int:
     s16_update()
     s17_install_ux()
     s18_uninstall()
+    s19_rename()
 
     if fixture_root is not None:
         shutil.rmtree(fixture_root, ignore_errors=True)

@@ -3,9 +3,9 @@
 # 单目录 exe 的打包定义。入库而非靠命令行重建：下面几条「必须带上什么」就是
 # 分发正确性本身，漏一个就是用户那边的启动崩溃或登录死路。
 #
-#   pyinstaller --noconfirm --clean CanvasHelper.spec
+#   pyinstaller --noconfirm --clean Inferry.spec
 #
-# 产物在 dist/CanvasHelper/，整目录压缩成 zip 分发。
+# 产物在 dist/Inferry/，整目录压缩成 zip 分发。
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
@@ -16,8 +16,8 @@ from pathlib import Path
 # 仓库根目录（本 spec 所在目录）必须显式加进 pathex。Analysis 默认只把「入口脚本
 # 所在目录」也就是 scripts\ 加进搜索路径；而 pip install -e 装出来的 PEP 660 版本
 # 注册的是 MetaPathFinder、并不往 sys.path 里加目录，PyInstaller 的分析器看不到
-# canvas_helper——症状极隐蔽：构建成功、体积正常，exe 一启动就
-# ModuleNotFoundError: No module named 'canvas_helper'。
+# inferry——症状极隐蔽：构建成功、体积正常，exe 一启动就
+# ModuleNotFoundError: No module named 'inferry'。
 HERE = Path(SPECPATH).resolve()  # noqa: F821 - SPECPATH 由 PyInstaller 注入
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))  # 让下面的 collect_submodules 能导入它
@@ -26,7 +26,7 @@ if str(HERE) not in sys.path:
 # 版本资源：让 exe 的「属性 → 详细信息」里有产品名与版本号，而不是一片空白。
 # 直接从 __init__.py 读，避免第二份要同步的版本号；文件生成在 build/（已 gitignore）。
 def _version_info() -> str:
-    src = (HERE / 'canvas_helper' / '__init__.py').read_text(encoding='utf-8')
+    src = (HERE / 'inferry' / '__init__.py').read_text(encoding='utf-8')
     match = re.search(r'__version__\s*=\s*"([^"]+)"', src)
     version = match.group(1) if match else '0.0.0'
     numbers = [int(x) for x in re.findall(r'\d+', version.split('-')[0])[:4]]
@@ -43,12 +43,12 @@ VSVersionInfo(
   ),
   kids=[
     StringFileInfo([StringTable('080404b0', [
-      StringStruct('CompanyName', 'CanvasHelper'),
-      StringStruct('FileDescription', 'CanvasHelper - Canvas 课程同步助手'),
+      StringStruct('CompanyName', 'Inferry'),
+      StringStruct('FileDescription', 'Inferry - Canvas 课程同步助手'),
       StringStruct('FileVersion', '{version}'),
-      StringStruct('InternalName', 'CanvasHelper'),
-      StringStruct('OriginalFilename', 'CanvasHelper.exe'),
-      StringStruct('ProductName', 'CanvasHelper'),
+      StringStruct('InternalName', 'Inferry'),
+      StringStruct('OriginalFilename', 'Inferry.exe'),
+      StringStruct('ProductName', 'Inferry'),
       StringStruct('ProductVersion', '{version}'),
       StringStruct('LegalCopyright', 'MIT License'),
     ])]),
@@ -66,10 +66,10 @@ pathex = [str(HERE)]
 
 datas = []
 binaries = []
-hiddenimports = ['canvas_helper']
+hiddenimports = ['inferry']
 # 逐个模块显式收集，而不是只写包名：函数内 import（gui -> runner -> cleaner 之类）
 # 一旦被静态分析漏掉，就只有用户点到那个功能时才会发现。
-hiddenimports += collect_submodules('canvas_helper')
+hiddenimports += collect_submodules('inferry')
 
 # Playwright：不只 import，还要 driver（node.exe + cli.js）。缺了它「安装 Chromium」
 # 无从执行，Edge 不在的机器上就彻底没退路。
@@ -105,7 +105,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='CanvasHelper',
+    name='Inferry',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -116,7 +116,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['docs/icons/canvashelper.ico'],
+    icon=['docs/icons/inferry.ico'],
     version=VERSION_INFO,
 )
 coll = COLLECT(
@@ -126,5 +126,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='CanvasHelper',
+    name='Inferry',
 )

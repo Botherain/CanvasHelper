@@ -2,7 +2,7 @@
 
 用法::
 
-    python scripts/make_icon.py                 # 用默认源图 -> docs/icons/canvashelper.ico
+    python scripts/make_icon.py                 # 用默认源图 -> docs/icons/inferry.ico
     python scripts/make_icon.py <源图> [输出ico]  # 指定来源/去处
     python scripts/make_icon.py --verify         # 只体检已有的 ico，不重新生成
 
@@ -36,9 +36,9 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SRC = Path.home() / "Downloads" / "CanvasHelper.jpg"
-ICO_PATH = ROOT / "docs" / "icons" / "canvashelper.ico"
-PREVIEW_PATH = ROOT / "docs" / "icons" / "canvashelper.png"
+DEFAULT_SRC = Path.home() / "Downloads" / "Inferry.jpg"
+ICO_PATH = ROOT / "docs" / "icons" / "inferry.ico"
+PREVIEW_PATH = ROOT / "docs" / "icons" / "inferry.png"
 
 SIZES: tuple[int, ...] = (16, 24, 32, 48, 64, 128, 256)
 # 单边最多裁掉的比例；裁到这个上限就停，宁可留一圈边也不把画面裁没。

@@ -8,7 +8,7 @@ Python 3.9 / 3.10 自带的 pip 分别是 20.2 与 21.2，都低于 21.3，edita
 下面直接空调用 ``setup()``，一切以 pyproject.toml 为准，本文件不参与任何决策——
 所以元数据副本只出现在旧环境里，不会变成第二份「需要同步的真相」。
 
-版本号从 ``canvas_helper/__init__.py`` 读，不在第三处再写一遍。
+版本号从 ``inferry/__init__.py`` 读，不在第三处再写一遍。
 """
 
 from __future__ import annotations
@@ -22,10 +22,10 @@ HERE = Path(__file__).parent
 
 
 def _version() -> str:
-    text = (HERE / "canvas_helper" / "__init__.py").read_text(encoding="utf-8")
+    text = (HERE / "inferry" / "__init__.py").read_text(encoding="utf-8")
     m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', text, re.MULTILINE)
     if not m:
-        raise SystemExit("读不到 canvas_helper/__init__.py 里的 __version__")
+        raise SystemExit("读不到 inferry/__init__.py 里的 __version__")
     return m.group(1)
 
 
@@ -44,17 +44,21 @@ if _setuptools_reads_pep621():
     setup()
 else:
     setup(
-        name="canvas-helper",
+        name="inferry",
         version=_version(),
-        description="Canvas 课程内容同步与学习辅助：按既有目录规则归档课程文件，"
+        description="Inferry（原 CanvasHelper）：按既有目录规则归档 Canvas 课程文件，"
                     "把截止时间写入 DeskBox 待办",
         python_requires=">=3.9",
-        packages=["canvas_helper"],
+        packages=["inferry"],
         install_requires=["playwright>=1.49", "tzdata>=2024.1"],
         entry_points={
             "console_scripts": [
-                "canvas-helper = canvas_helper.__main__:main",
-                "canvas-helper-gui = canvas_helper.gui:main",
-            ]
+                "inferry = inferry.__main__:main",
+                "canvas-helper = inferry.__main__:main",
+            ],
+            "gui_scripts": [
+                "inferry-gui = inferry.gui:main",
+                "canvas-helper-gui = inferry.gui:main",
+            ],
         },
     )

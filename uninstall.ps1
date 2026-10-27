@@ -1,11 +1,12 @@
 ﻿<#
-CanvasHelper 一键卸载（Windows PowerShell）
+Inferry 一键卸载（Windows PowerShell）
 
 删除什么：
-  · 程序目录（默认：本脚本旁边的 CanvasHelper\）
-  · 使用数据（默认：%LOCALAPPDATA%\CanvasHelper —— 配置、登录态、日志、更新缓存）
-  · 两个计划任务（每日同步 / 每周摘要）
-  · 桌面快捷方式 CanvasHelper.lnk（存在才删）
+  · 程序目录（默认：本脚本旁边的 Inferry\，兼容 1.x 的 CanvasHelper\）
+  · 使用数据（默认：%LOCALAPPDATA%\Inferry —— 配置、登录态、日志、更新缓存；
+    1.x 留下的 %LOCALAPPDATA%\CanvasHelper 也一并清掉，避免升级后残留）
+  · 计划任务：Inferry-DailySync / -WeeklyReport 与 1.x 的 CanvasHelper-* 两条
+  · 桌面快捷方式 Inferry.lnk 与 1.x 的 CanvasHelper.lnk（存在才删）
 
 不删什么：
   · 课程文件夹（classes_root）
@@ -21,46 +22,64 @@ param(
     [switch]$Yes,
     [switch]$KeepData,
     [string]$AppDir = "",
+    # 逗号分隔；留空 = 当前名 + 1.x 旧名
     [string]$DataDir = "",
+    # 逗号分隔；留空 = Inferry.lnk + CanvasHelper.lnk
     [string]$Shortcut = "",
-    # 测试用：逗号分隔的任务名；留空 = 真实的两个计划任务
+    # 测试用：逗号分隔的任务名；留空 = 真实的四条计划任务（新名 + 旧名）
     [string]$Tasks = ""
 )
 
 $ErrorActionPreference = 'Continue'
 $script:ours = @('readme.txt', 'uninstall.bat', 'uninstall.ps1')
+# 1.x 的名字：升级到 2.0.0 后立刻卸载，也要把这些残留一并清干净
+$script:legacyName = 'CanvasHelper'
 
 function Write-Head([string]$text) { Write-Host $text -ForegroundColor Cyan }
 function Write-Warn([string]$text) { Write-Host $text -ForegroundColor Yellow }
 function Write-Ok([string]$text) { Write-Host $text -ForegroundColor Green }
 
+function Split-List([string]$text) {
+    @($text.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
 # ---- 参数默认值 ---------------------------------------------------------
 if (-not $AppDir) {
-    $candidate = Join-Path $PSScriptRoot 'CanvasHelper'
-    if (-not (Test-Path -LiteralPath $candidate)) {
-        # 2.0.0 改名后程序目录（Inferry\）不再叫 CanvasHelper：
-        # 退而求其次，找「唯一一个里面有 exe 的子目录」，这样旧卸载器也能用。
+    foreach ($name in @('Inferry', $script:legacyName)) {
+        $candidate = Join-Path $PSScriptRoot $name
+        if (Test-Path -LiteralPath $candidate) { $AppDir = $candidate; break }
+    }
+    if (-not $AppDir) {
+        # 兜底：找「唯一一个里面有 exe 的子目录」，名字怎么改都能对上
         $dirs = @(Get-ChildItem -LiteralPath $PSScriptRoot -Directory -ErrorAction SilentlyContinue |
             Where-Object {
                 @(Get-ChildItem -LiteralPath $_.FullName -Filter *.exe -File -ErrorAction SilentlyContinue).Count -gt 0
             })
-        if ($dirs.Count -eq 1) { $candidate = $dirs[0].FullName }
+        if ($dirs.Count -eq 1) { $AppDir = $dirs[0].FullName }
     }
-    if (Test-Path -LiteralPath $candidate) { $AppDir = $candidate }
 }
 if (-not $DataDir) {
-    $DataDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CanvasHelper'
+    $local = [Environment]::GetFolderPath('LocalApplicationData')
+    $DataDir = (@('Inferry', $script:legacyName) |
+        ForEach-Object { Join-Path $local $_ } |
+        Where-Object { Test-Path -LiteralPath $_ }) -join ','
+    if (-not $DataDir) { $DataDir = Join-Path $local 'Inferry' }
 }
+$dataDirs = Split-List $DataDir
 if (-not $Shortcut) {
-    $Shortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'CanvasHelper.lnk'
+    $desktop = [Environment]::GetFolderPath('Desktop')
+    $Shortcut = (Join-Path $desktop 'Inferry.lnk') + ',' + (Join-Path $desktop ($script:legacyName + '.lnk'))
 }
-$tasks = @('CanvasHelper-DailySync', 'CanvasHelper-WeeklyReport')
-if ($Tasks) { $tasks = $Tasks.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ } }
+$shortcuts = Split-List $Shortcut
+$tasks = @('Inferry-DailySync', 'Inferry-WeeklyReport',
+    ($script:legacyName + '-DailySync'), ($script:legacyName + '-WeeklyReport'))
+if ($Tasks) { $tasks = Split-List $Tasks }
 
 # 从配置里读课程目录，仅用于提示「不会被删除」
 $classesRoot = ''
-$configPath = Join-Path $DataDir 'config.json'
-if (Test-Path -LiteralPath $configPath) {
+foreach ($dir in $dataDirs) {
+    $configPath = Join-Path $dir 'config.json'
+    if ($classesRoot -or -not (Test-Path -LiteralPath $configPath)) { continue }
     try {
         $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
         $classesRoot = [string]$cfg.classes_root
@@ -68,12 +87,18 @@ if (Test-Path -LiteralPath $configPath) {
 }
 
 # ---- 展示将删除 / 将保留 ------------------------------------------------
-Write-Head '=== CanvasHelper 卸载 ==='
+Write-Head '=== Inferry 卸载 ==='
 Write-Host '将删除：'
 if ($AppDir -and (Test-Path -LiteralPath $AppDir)) { Write-Host "  · 程序目录     $AppDir" }
-if (-not $KeepData) { Write-Host "  · 使用数据     $DataDir" } else { Write-Host '  · 使用数据     保留' }
+if (-not $KeepData) {
+    foreach ($dir in $dataDirs) { Write-Host "  · 使用数据     $dir" }
+} else {
+    Write-Host '  · 使用数据     保留'
+}
 Write-Host ("  · 计划任务     " + ($tasks -join '、'))
-if (Test-Path -LiteralPath $Shortcut) { Write-Host "  · 桌面快捷方式 $Shortcut" }
+foreach ($lnk in $shortcuts) {
+    if (Test-Path -LiteralPath $lnk) { Write-Host "  · 桌面快捷方式 $lnk" }
+}
 Write-Host ''
 Write-Host '将保留：'
 if ($classesRoot) { Write-Host "  · 课程文件     $classesRoot" }
@@ -114,18 +139,23 @@ foreach ($task in $tasks) {
 }
 
 # ---- 3) 桌面快捷方式 ----------------------------------------------------
-if (Test-Path -LiteralPath $Shortcut) {
-    Remove-Item -LiteralPath $Shortcut -Force -ErrorAction SilentlyContinue
-    if (-not (Test-Path -LiteralPath $Shortcut)) { Write-Host '  已删除桌面快捷方式' }
+foreach ($lnk in $shortcuts) {
+    if (Test-Path -LiteralPath $lnk) {
+        Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $lnk)) { Write-Host "  已删除桌面快捷方式 $lnk" }
+    }
 }
 
 # ---- 4) 使用数据 --------------------------------------------------------
-if (-not $KeepData -and (Test-Path -LiteralPath $DataDir)) {
-    Remove-Item -LiteralPath $DataDir -Recurse -Force -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $DataDir) {
-        Write-Warn "  ! 使用数据没能完全删除（可能被占用）：$DataDir"
-    } else {
-        Write-Ok '  已删除使用数据（配置 / 登录态 / 日志）'
+if (-not $KeepData) {
+    foreach ($dir in $dataDirs) {
+        if (-not (Test-Path -LiteralPath $dir)) { continue }
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $dir) {
+            Write-Warn "  ! 使用数据没能完全删除（可能被占用）：$dir"
+        } else {
+            Write-Ok "  已删除使用数据（配置 / 登录态 / 日志）：$dir"
+        }
     }
 }
 

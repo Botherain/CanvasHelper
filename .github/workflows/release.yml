@@ -40,7 +40,7 @@ jobs:
         # 不装 dev extra：发布只需要运行时依赖 + build + pyinstaller。
         # 这里刻意用非 editable 的 `pip install .`：`-e .` 走 PEP 660，只会注册一个
         # MetaPathFinder、不往 sys.path 加目录，PyInstaller 的分析器看不到
-        # canvas_helper，打出来的 exe 一启动就 ModuleNotFoundError（v1.2.0 的坑）。
+        # inferry，打出来的 exe 一启动就 ModuleNotFoundError（v1.2.0 的坑）。
         run: |
           python -m pip install --upgrade pip
           python -m pip install .
@@ -52,7 +52,7 @@ jobs:
         run: |
           import os, pathlib, re
           tag = os.environ.get("GITHUB_REF_NAME", "")
-          src = pathlib.Path("canvas_helper/__init__.py").read_text(encoding="utf-8")
+          src = pathlib.Path("inferry/__init__.py").read_text(encoding="utf-8")
           ver = re.search(r'__version__\s*=\s*"([^"]+)"', src).group(1)
           print(f"tag={tag!r} version={ver!r}")
           if tag.startswith("v") and tag[1:] != ver:
@@ -62,17 +62,17 @@ jobs:
         run: python -m build
 
       - name: 构建 exe（单目录）
-        # 参数全在 CanvasHelper.spec 里：playwright driver 与 tzdata 都在那儿声明，
+        # 参数全在 Inferry.spec 里：playwright driver 与 tzdata 都在那儿声明，
         # 不靠命令行现敲，避免「本地能打包、CI 打出来少东西」
-        run: pyinstaller --noconfirm --clean CanvasHelper.spec
+        run: pyinstaller --noconfirm --clean Inferry.spec
 
       - name: 冒烟：exe 必须能启动
-        # 补出来的教训：v1.2.0 的 exe 因分析器找不到 canvas_helper，构建成功、
+        # 补出来的教训：v1.2.0 的 exe 因分析器找不到 inferry，构建成功、
         # 体积正常，用户一启动就是 ModuleNotFoundError。--selftest 会逐个导入
         # 全部子模块，只看退出码（windowed exe 里异常会弹对话框，所以加了超时）。
         shell: pwsh
         run: |
-          $exe = "dist\CanvasHelper\CanvasHelper.exe"
+          $exe = "dist\Inferry\Inferry.exe"
           $p = Start-Process -FilePath $exe -ArgumentList "--selftest" -PassThru -WindowStyle Hidden
           if (-not $p.WaitForExit(180000)) {
             $p.Kill()
@@ -85,15 +85,15 @@ jobs:
         # 用 Python 压包而不是 Compress-Archive：这里字符串里既有中文又有反斜杠，
         # PowerShell 的 here-string 在 YAML 缩进下极易踩坑；Python 还能明确控制
         # 编码（UTF-8 BOM，记事本可读）与条目顺序。
-        # README.txt 放在 zip 根、与 CanvasHelper\ 平级：绝不能放进 exe 同级目录，
+        # README.txt 放在 zip 根、与 Inferry\ 平级：绝不能放进 exe 同级目录，
         # 否则会破坏「一键更新」的安全阀（要求安装目录顶层只有 exe 与 _internal）。
         shell: python
         run: |
           import os, pathlib, zipfile
 
-          notes = """CanvasHelper（免安装便携版）
+          notes = """Inferry（免安装便携版）
 
-          1. 双击 CanvasHelper\\CanvasHelper.exe 启动。
+          1. 双击 Inferry\\Inferry.exe 启动。
              首次运行若提示「Windows 已保护你的电脑」，点「更多信息」->「仍要运行」。
 
           2. 解压到可写目录（如 D:\\Apps\\），不要放 C:\\Program Files：
@@ -102,30 +102,34 @@ jobs:
           3. 如果 zip 的属性里有「解除锁定」，先勾选并应用，再解压——
              否则 Windows 可能拦住内置的 node.exe。
 
-          4. 配置、登录态、日志都在 %LOCALAPPDATA%\\CanvasHelper：
+          4. 配置、登录态、日志都在 %LOCALAPPDATA%\\Inferry：
              删掉本目录不会丢数据，但别把整个文件夹发给别人（里面有 Cookie）。
+             从 1.x 升级上来时，旧的 %LOCALAPPDATA%\\CanvasHelper 会在首次启动时
+             一次性搬到这里（登录态与课程配色跟着走）；旧计划任务与旧快捷方式
+             会自动清理，桌面快捷方式可在「设置」页按新名字重建。
 
           5. 挪动了本文件夹也没关系：下次启动会自动修正计划任务。
              随时可在「设置」页点「创建桌面快捷方式」。
 
           6. 有新版本时顶栏会出现提示，点开按「立即下载并更新」即可。
-             1.2.x 及更早的版本需要手动下载 zip 覆盖一次。
+             1.3.2 及更早的版本不支持跨改名的一键更新，需要手动下载 zip 覆盖一次；
+             已经是 1.3.4 的可以直接用应用内更新升到 2.0.0。
 
           7. 想彻底卸载：双击本目录里的 uninstall.bat（会删掉程序、使用数据、
              计划任务与桌面快捷方式；课程文件与 DeskBox 待办不会被删除）。
 
-          项目主页：https://github.com/Botherain/CanvasHelper
+          项目主页：https://github.com/Botherain/Inferry
           """
           pathlib.Path("dist/README.txt").write_text(notes, encoding="utf-8-sig")
 
-          # 卸载器放在 zip 根（与 CanvasHelper\ 平级），不能进 exe 同级目录，
+          # 卸载器放在 zip 根（与 Inferry\ 平级），不能进 exe 同级目录，
           # 否则会破坏「一键更新」的安全阀；.ps1 带 BOM、.bat 纯 ASCII，原样拷过去。
           import shutil
           for name in ("uninstall.bat", "uninstall.ps1"):
               shutil.copy2(name, pathlib.Path("dist") / name)
 
-          zip_path = f"dist/CanvasHelper-{os.environ['GITHUB_REF_NAME']}-win64.zip"
-          root = pathlib.Path("dist/CanvasHelper")
+          zip_path = f"dist/Inferry-{os.environ['GITHUB_REF_NAME']}-win64.zip"
+          root = pathlib.Path("dist/Inferry")
           with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
               for name in ("README.txt", "uninstall.bat", "uninstall.ps1"):
                   zf.write(pathlib.Path("dist") / name, name)
@@ -139,21 +143,21 @@ jobs:
         shell: python
         run: |
           import os, zipfile
-          zip_path = f"dist/CanvasHelper-{os.environ['GITHUB_REF_NAME']}-win64.zip"
+          zip_path = f"dist/Inferry-{os.environ['GITHUB_REF_NAME']}-win64.zip"
           with zipfile.ZipFile(zip_path) as zf:
               names = set(zf.namelist())
           missing = {"README.txt", "uninstall.bat", "uninstall.ps1",
-                     "CanvasHelper/CanvasHelper.exe"} - names
+                     "Inferry/Inferry.exe"} - names
           if missing:
               raise SystemExit(f"zip 缺少：{sorted(missing)}")
-          print(f"zip 内容校验通过：README.txt + uninstall.bat/ps1 + CanvasHelper/，"
+          print(f"zip 内容校验通过：README.txt + uninstall.bat/ps1 + Inferry/，"
                 f"共 {len(names)} 个条目")
 
       - name: 生成 Release 说明（CHANGELOG 小节 + 下载指引）
         shell: python
         run: |
           import pathlib, re
-          src = pathlib.Path("canvas_helper/__init__.py").read_text(encoding="utf-8")
+          src = pathlib.Path("inferry/__init__.py").read_text(encoding="utf-8")
           ver = re.search(r'__version__\s*=\s*"([^"]+)"', src).group(1)
           log = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
           m = re.search(rf"^## \[{re.escape(ver)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
@@ -165,12 +169,13 @@ jobs:
 
           | 文件 | 给谁 | 怎么用 |
           | --- | --- | --- |
-          | `CanvasHelper-v{ver}-win64.zip` | **绝大多数人** | 解压 → 双击 `CanvasHelper\\CanvasHelper.exe`。免安装、无需 Python |
-          | `canvas_helper-{ver}-py3-none-any.whl` | 会用 pip 的人 | `pip install <whl>`，然后运行 `canvas-helper` |
+          | `Inferry-v{ver}-win64.zip` | **绝大多数人** | 解压 → 双击 `Inferry\\Inferry.exe`。免安装、无需 Python |
+          | `inferry-{ver}-py3-none-any.whl` | 会用 pip 的人 | `pip install <whl>`，然后运行 `inferry` |
           | `Source code` | 想看/改代码的人 | `pip install .`，见 README「从源码运行」 |
 
           首次运行：被 SmartScreen 拦住时点「更多信息 → 仍要运行」；zip 属性里若有「解除锁定」，先勾掉再解压。
-          从 1.2.x 升上来需要手动覆盖一次，之后就能应用内一键更新。
+          **从 1.x 升级：请先升到 1.3.4**，再用应用内一键更新升到 2.0.0（1.3.2 及更早需手动覆盖一次）。
+          数据目录已从 `%LOCALAPPDATA%\\CanvasHelper` 迁移到 `%LOCALAPPDATA%\\Inferry`；旧计划任务与旧快捷方式会自动清理。
           """
           pathlib.Path("release-notes.md").write_text(
               body + "\n\n" + guide.strip() + "\n", encoding="utf-8")
@@ -182,12 +187,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" `
-            --title "CanvasHelper ${{ github.ref_name }}" `
+            --title "Inferry ${{ github.ref_name }}" `
             --notes-file release-notes.md `
             dist/*.whl dist/*.tar.gz dist/*.zip
 
       - name: 手动触发时保留产物
-        # 只留三个交付物：dist/CanvasHelper/ 是解包目录，单独传一遍等于把 zip
+        # 只留三个交付物：dist/Inferry/ 是解包目录，单独传一遍等于把 zip
         # 又拆开重复上传（含 89 MB 的 node.exe）
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4

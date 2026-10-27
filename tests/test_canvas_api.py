@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import canvas_helper.canvas_api as canvas_api_mod  # noqa: E402
-from canvas_helper.canvas_api import CanvasAPI  # noqa: E402
+import inferry.canvas_api as canvas_api_mod  # noqa: E402
+from inferry.canvas_api import CanvasAPI  # noqa: E402
 
 BASE = "https://canvas.example"
 

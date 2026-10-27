@@ -73,7 +73,7 @@ def sanitize(name: str) -> str:
 def course_dirs(root: Path) -> dict[str, Path]:
     """扫描 classes 根目录，返回 课程代码 -> 本地文件夹。
 
-    键用与课程代码**同一套**提取规则（见 :mod:`canvas_helper.coursecode`），
+    键用与课程代码**同一套**提取规则（见 :mod:`inferry.coursecode`），
     这样别的学校（``MATH 101 - Calculus``）也能匹配上，而不会每次同步都
     新建一个重复文件夹。
     """

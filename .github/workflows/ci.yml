@@ -42,7 +42,7 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Ruff
-        run: python -m ruff check canvas_helper tests scripts
+        run: python -m ruff check inferry tests scripts
 
       - name: Mypy
         run: python -m mypy
@@ -74,13 +74,15 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Verify packaging
+        # 顺带验证 1.x 的命令名兼容别名还在（pip 升级会把它改指向新包）
         run: |
-          python -m canvas_helper --version
+          python -m inferry --version
+          inferry --version
           canvas-helper --version
-          python -c 'import canvas_helper, canvas_helper.runner, canvas_helper.gui; print(canvas_helper.__file__)'
+          python -c 'import inferry, inferry.runner, inferry.gui; print(inferry.__file__)'
 
       - name: Byte-compile
-        run: python -m compileall -q canvas_helper tests
+        run: python -m compileall -q inferry tests
 
       - name: Run offline self-test (脚本入口)
         # smoke.py 与本机数据解耦：没有真实课程目录 / todo.json 时自动造 fixture，

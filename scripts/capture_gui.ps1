@@ -1,11 +1,11 @@
-# Capture the CanvasHelper main window to a PNG for the README.
+# Capture the Inferry main window to a PNG for the README.
 #
 # Deliberately pure ASCII: PowerShell 5.1 reads a .ps1 without BOM as ANSI (cp936
 # here), so any non-ASCII byte in this file could corrupt the syntax.
 #
 # Usage:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File capture_gui.ps1 <out.png>
-#   powershell -NoProfile -ExecutionPolicy Bypass -File capture_gui.ps1 <out.png> -ProcessName CanvasHelper.exe
+#   powershell -NoProfile -ExecutionPolicy Bypass -File capture_gui.ps1 <out.png> -ProcessName Inferry.exe
 #
 # -ProcessName only selects the packaged build. A source build is located by its
 # command line regardless of which interpreter launched it (python.exe or
@@ -67,7 +67,7 @@ if ($ProcessName -eq 'python.exe' -or $ProcessName -eq 'pythonw.exe') {
     # Source build: identify it by how it was launched. Any python* counts --
     # the window may belong to python.exe (console) or pythonw.exe (no console).
     $target = Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" |
-        Where-Object { $_.CommandLine -like '*canvas_helper*gui*' -or $_.CommandLine -like '*canvas_helper gui*' } |
+        Where-Object { $_.CommandLine -like '*inferry*gui*' -or $_.CommandLine -like '*inferry gui*' } |
         Select-Object -First 1
 } else {
     # Packaged build: there is no useful command line, so identify it by the
@@ -75,7 +75,7 @@ if ($ProcessName -eq 'python.exe' -or $ProcessName -eq 'pythonw.exe') {
     $target = Get-CimInstance Win32_Process -Filter ("Name = '{0}'" -f $ProcessName) |
         Where-Object {
             $proc = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
-            $proc -and $proc.MainWindowTitle -like 'CanvasHelper*'
+            $proc -and $proc.MainWindowTitle -like 'Inferry*'
         } |
         Select-Object -First 1
 }

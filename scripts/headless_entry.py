@@ -4,7 +4,7 @@
 ------------------
 计划任务里的命令原来写成::
 
-    cmd /c cd /d "<项目目录>" && "<python.exe>" -m canvas_helper sync --headless
+    cmd /c cd /d "<项目目录>" && "<python.exe>" -m inferry sync --headless
 
 两个问题：
 
@@ -14,7 +14,7 @@
    schtasks 的 ``/Create`` 也不提供「起始目录」参数，默认从 ``System32`` 起跑。
 
 2. **起始目录错了就 import 不到包。** 未 ``pip install`` 时必然
-   ``No module named canvas_helper``，日志与相对路径也会错位。
+   ``No module named inferry``，日志与相对路径也会错位。
 
 所以把「定位源码目录」这件事从 shell 挪进 Python：本脚本用
 ``__file__`` 把项目根塞进 ``sys.path``，因此无论 schtasks 从哪个目录起跑
@@ -24,7 +24,7 @@
 
 用法
 ----
-与 ``python -m canvas_helper`` 完全一致，子命令与参数原样透传::
+与 ``python -m inferry`` 完全一致，子命令与参数原样透传::
 
     headless_entry.py sync --headless
     headless_entry.py report --headless
@@ -39,7 +39,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from canvas_helper.__main__ import main  # noqa: E402
+from inferry.__main__ import main  # noqa: E402
 
 if __name__ == "__main__":
     raise SystemExit(main())

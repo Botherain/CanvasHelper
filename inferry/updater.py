@@ -16,7 +16,7 @@
 * 失败也写 ``attempted_at``——否则离线时每次启动都要白等一次超时；
 * 真正的联网节奏由 :func:`needs_check` 控制（默认 24 小时一次），手动检查可绕过。
 
-**一键替换只对打包版有效**：源码运行（``python -m canvas_helper``）时只打开下载页，
+**一键替换只对打包版有效**：源码运行（``python -m inferry``）时只打开下载页，
 不去动用户的工作目录。
 """
 
@@ -53,7 +53,7 @@ from .paths import (
 log = get_logger()
 
 #: 本仓库（更新检查 / 下载页都从这里拼）
-REPO = "Botherain/CanvasHelper"
+REPO = "Botherain/Inferry"
 RELEASES_API = f"https://api.github.com/repos/{REPO}/releases"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases"
 
@@ -69,10 +69,10 @@ MAX_RELEASES_KEPT = 10
 MAX_NOTES_SHOWN = 10
 #: 单目录构建里唯一允许的「非 exe」顶层条目。其它任何东西都会在镜像替换时被删掉，
 #: 所以见到就拒绝自动替换（把住用户资料）。
-#: 注意：exe 的文件名**不写死**——2.0.0 会把 CanvasHelper.exe 改名成 Inferry.exe。
+#: 注意：exe 的文件名**不写死**——1.3.x 叫 CanvasHelper.exe，2.0.0 起叫 Inferry.exe。
 _INTERNAL_DIR = "_internal"
 
-_USER_AGENT = f"CanvasHelper/{__version__} (+https://github.com/{REPO})"
+_USER_AGENT = f"Inferry/{__version__} (+https://github.com/{REPO})"
 
 #: 版本号：可选 v 前缀 + 数字段 + 可选后缀（rc1 / beta.2 / +local）
 _VER_RE = re.compile(r"^[vV]?(\d+(?:\.\d+)*)(?:[-_.+]?(.+))?$")
@@ -569,7 +569,7 @@ def download(
         raise ValueError(f"下载地址不是 https：{asset.url}")
     target_dir = Path(dest_dir or UPDATES_DIR)
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / (asset.name or "CanvasHelper-update.zip")
+    target = target_dir / (asset.name or "Inferry-update.zip")
     part = target.with_name(target.name + ".part")
     ctx = ssl.create_default_context()
     req = urllib.request.Request(  # noqa: S310 - 上面已校验 https
@@ -623,9 +623,10 @@ def _safe_extract(archive: zipfile.ZipFile, dest: Path) -> None:
 def find_exe(root: Path) -> Path | None:
     """在解压结果里找主程序 exe，返回层级最浅、体积最大的那个。
 
-    刻意**不写死文件名**：2.0.0 会把 ``CanvasHelper.exe`` 改名成 ``Inferry.exe``，
-    如果这里只认旧名字，改名后的第一个版本会被判成「更新包里没有 exe」而退回
-    手动更新；更糟的是替换脚本会把「旧名字」当成重启目标，覆盖完就再也起不来。
+    刻意**不写死文件名**：1.3.x 的包叫 ``CanvasHelper.exe``，2.0.0 起叫
+    ``Inferry.exe``。如果这里只认某一个名字，改名后的第一个版本会被判成
+    「更新包里没有 exe」而退回手动更新；更糟的是替换脚本会把「旧名字」当成
+    重启目标，覆盖完就再也起不来（1.3.3 修的就是这件事）。
     """
     try:
         candidates = [p for p in root.rglob("*.exe") if p.is_file()]
@@ -648,7 +649,7 @@ def stage(zip_path: Path, version: str = "") -> Path:
         _safe_extract(archive, base)
     exe = find_exe(base)
     if exe is None:
-        raise ValueError("更新包里没有找到 CanvasHelper.exe")
+        raise ValueError("更新包里没有找到主程序 exe")
     return exe.parent
 
 
@@ -692,7 +693,7 @@ def why_not_replace(old_dir: Path) -> str:
     比 :func:`safe_to_replace` 多给出「为什么」——用户把程序解压进
     ``C:\\Program Files`` 时，笼统一句「不能自动更新」根本没法自救。
 
-    判断**不写死 exe 文件名**（2.0.0 会把 ``CanvasHelper.exe`` 改成
+    判断**不写死 exe 文件名**（1.3.x 是 ``CanvasHelper.exe``，2.0.0 起是
     ``Inferry.exe``）：只要顶层是「若干 exe + ``_internal``」就认，多出任何别的
     东西才拒绝——镜像替换会删掉多出来的文件，这是唯一需要把住的地方。
     """
@@ -721,8 +722,8 @@ def why_not_replace(old_dir: Path) -> str:
 def safe_to_replace(old_dir: Path, new_dir: Path | None = None) -> bool:
     """能不能对 ``old_dir`` 做 ``/MIR`` 镜像替换。
 
-    替换会删掉旧目录里多出来的文件，所以只在「这就是一个 CanvasHelper 单目录
-    构建」且目录可写时才允许：目录里有 exe，顶层只有 ``CanvasHelper.exe`` 与
+    替换会删掉旧目录里多出来的文件，所以只在「这就是一个 Inferry 单目录
+    构建」且目录可写时才允许：目录里有 exe，顶层只有若干 exe 与
     ``_internal``，不是盘符根 / 用户主目录。
     """
     if why_not_replace(old_dir):
@@ -736,10 +737,10 @@ def _ps_quote(text: str | Path) -> str:
 
 
 _APPLY_SCRIPT = """\
-# CanvasHelper 自动更新脚本（由程序生成，替换完成后可删除）
+# Inferry 自动更新脚本（由程序生成，替换完成后可删除）
 # 做的事：等旧进程退出 -> 用新版本镜像覆盖安装目录 -> 重新打开
 #
-# 关于 exe 文件名：2.0.0 起主程序会从 CanvasHelper.exe 改名成 Inferry.exe，
+# 关于 exe 文件名：2.0.0 起主程序从 CanvasHelper.exe 改名为 Inferry.exe，
 # 所以「重启哪个文件」必须在生成脚本时按**新版本**里的实际文件名算好，
 # 不能沿用旧名字——否则镜像替换会删掉旧 exe，脚本再去启动它，用户就再也打不开。
 $ErrorActionPreference = 'Continue'
@@ -821,10 +822,10 @@ def write_apply_script(
     if exe_path is not None:
         fallback = Path(exe_path)
     elif is_frozen():
-        # 正在运行的就是「旧名字」那个 exe（换名后是 Inferry.exe，之前是 CanvasHelper.exe）
+        # 正在运行的就是「旧名字」那个 exe（2.0.0 之前是 CanvasHelper.exe，之后是 Inferry.exe）
         fallback = Path(sys.executable)
     else:
-        fallback = old / "CanvasHelper.exe"
+        fallback = old / "Inferry.exe"
     start = old / (new_exe.name if new_exe is not None else fallback.name)
     target = Path(script_path) if script_path else apply_script_path()
     target.parent.mkdir(parents=True, exist_ok=True)

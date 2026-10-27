@@ -1,4 +1,4 @@
-"""CanvasHelper 测试包。
+"""Inferry 测试包。
 
 这个空标记的作用是把 ``tests/smoke.py`` 变成模块 ``tests.smoke``：
 

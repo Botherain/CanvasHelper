@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from canvas_helper import paths  # noqa: E402
+from inferry import paths  # noqa: E402
 from tests import smoke  # noqa: E402
 
 

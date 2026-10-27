@@ -1,4 +1,4 @@
-"""双击启动 CanvasHelper 的图形界面（源码方式）。
+"""双击启动 Inferry 的图形界面（源码方式）。
 
 为什么用 ``.pyw``：Windows 双击 ``.py`` 会附带一个控制台窗口，``.pyw`` 由
 ``pythonw.exe`` 执行、全程无控制台，也就不需要以前的 ``.bat`` 启动脚本
@@ -26,7 +26,7 @@ def _fail(message: str) -> None:
 
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror("CanvasHelper 启动失败", message)
+        messagebox.showerror("Inferry 启动失败", message)
         root.destroy()
     except Exception:
         print(message, file=sys.stderr)
@@ -34,7 +34,7 @@ def _fail(message: str) -> None:
 
 def main() -> int:
     try:
-        from canvas_helper.gui import main as gui_main
+        from inferry.gui import main as gui_main
     except Exception as exc:
         _fail(
             f"缺少依赖或安装不完整：\n{exc}\n\n"
@@ -42,7 +42,7 @@ def main() -> int:
             "    python -m pip install .\n"
             "然后再双击本文件。\n\n"
             "（只想用现成程序的话，下载 Release 里的 win64 zip，"
-            "双击里面的 CanvasHelper.exe，不需要 Python。）"
+            "双击里面的 Inferry.exe，不需要 Python。）"
         )
         return 1
     gui_main()

@@ -18,9 +18,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from canvas_helper.extras import Notice, mark_notices_read  # noqa: E402
-from canvas_helper.paths import STATE_PATH, load_state, save_state  # noqa: E402
-from canvas_helper.runner import SyncResult  # noqa: E402
+from inferry.extras import Notice, mark_notices_read  # noqa: E402
+from inferry.paths import STATE_PATH, load_state, save_state  # noqa: E402
+from inferry.runner import SyncResult  # noqa: E402
 
 BODY = "正文不该进 state.json"
 LEGACY = "8 月的老公告正文，新版不许再攒着"

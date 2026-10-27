@@ -186,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
                 mark = "*" if t.default or t.key in keys else " "
                 print(f" {mark} {t.key:<8} {t.label:<24} {t.size_text:>10}  {t.files} 个文件")
                 print(f"     {t.detail}")
-            print("\n* 为默认清理项。执行：python -m canvas_helper clean [--login] [--todos] [--pending]")
+            print("\n* 为默认清理项。执行：python -m inferry clean [--login] [--todos] [--pending]")
             return 0
         progress = log.info
         rep = cleaner.run(keys, progress=progress)
@@ -211,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
                   f"失败 {rep['errors']} 个")
             return 1 if rep["errors"] else 0
         print("\n以上为预览，未改动任何文件。确认后执行：")
-        print("  python -m canvas_helper tidy --apply")
+        print("  python -m inferry tidy --apply")
         return 0
 
     if cmd == "install-browser":
@@ -284,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return uninstall.main(argv[1:])
 
-    print("用法: python -m canvas_helper "
+    print("用法: python -m inferry "
           "[gui|sync|report|flush|clean|tidy|login|courses|schools|update|uninstall|install-browser] "
           "[--headless] [--version]")
     print("  gui      启动图形界面（默认）")
