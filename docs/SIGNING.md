@@ -31,11 +31,11 @@ Foundation，你通过他们的托管流水线签名，私钥永远不落到你�
 
 | 条件 | 本项目现状 |
 | --- | --- |
-| 公开仓库 | ✅ `github.com/Botherain/CanvasHelper` |
+| 公开仓库 | ✅ `github.com/Botherain/Inferry`（原 `CanvasHelper`，2026-10 改名，旧地址自动跳转） |
 | OSI 认可的开源许可证 | ✅ MIT（`LICENSE`） |
 | 不含恶意 / 可疑组件 | ✅ 只依赖 `playwright` 与 `tzdata`；`_internal` 里的 `node.exe` 是 Playwright 官方分发 |
 | 无可商用专有模块（不能有「开源版 + 付费版」双许可） | ✅ 全部 MIT |
-| 能从源码重现发布物 | ✅ `CanvasHelper.spec` + `release.yml`（tag → 构建 → 压包） |
+| 能从源码重现发布物 | ✅ `Inferry.spec` + `release.yml`（tag → 构建 → 压包） |
 | 构建全部跑在 GitHub 托管 runner 上 | ✅ `windows-latest` |
 | README 写明怎么构建 | ✅「从源码运行」+ `docs/RELEASING.md` |
 
@@ -48,18 +48,18 @@ Foundation，你通过他们的托管流水线签名，私钥永远不落到你�
 可直接复制的申请文案（英文，按需改）：
 
 ```text
-Project: CanvasHelper
-Repository: https://github.com/Botherain/CanvasHelper
+Project: Inferry (renamed from CanvasHelper in Oct 2026; the old GitHub URL redirects)
+Repository: https://github.com/Botherain/Inferry
 License: MIT
 What it is: A Windows desktop app (Python + tkinter) that syncs Canvas (LMS)
 course files to local folders and writes assignment deadlines into DeskBox.
 Distribution: GitHub Releases only. Each release ships a PyInstaller one-dir
-build zipped as CanvasHelper-vX-win64.zip (main exe: CanvasHelper.exe),
+build zipped as Inferry-vX-win64.zip (main exe: Inferry.exe),
 plus a wheel and sdist.
 Build: fully reproducible from source on GitHub-hosted runners via
 .github/workflows/release.yml (Windows). PyInstaller spec is committed
-(CanvasHelper.spec); the workflow runs the built exe with --selftest as a gate.
-Signing: we only need the main CanvasHelper.exe signed (one PE file per release).
+(Inferry.spec); the workflow runs the built exe with --selftest as a gate.
+Signing: we only need the main Inferry.exe signed (one PE file per release).
 No proprietary components; no dual licensing.
 ```
 
@@ -76,7 +76,7 @@ No proprietary components; no dual licensing.
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-exe
-          path: dist/CanvasHelper/CanvasHelper.exe
+          path: dist/Inferry/Inferry.exe
           archive: false            # 不包成 zip：签名后直接拿回单个 exe
           if-no-files-found: error
 
@@ -95,8 +95,8 @@ No proprietary components; no dual licensing.
       - name: 用签名后的 exe 覆盖
         shell: pwsh
         run: |
-          Copy-Item signed\CanvasHelper.exe dist\CanvasHelper\CanvasHelper.exe -Force
-          $sig = Get-AuthenticodeSignature dist\CanvasHelper\CanvasHelper.exe
+          Copy-Item signed\Inferry.exe dist\Inferry\Inferry.exe -Force
+          $sig = Get-AuthenticodeSignature dist\Inferry\Inferry.exe
           if ($sig.Status -ne 'Valid') { throw "签名无效：$($sig.Status)" }
           Write-Host "签名者：$($sig.SignerCertificate.Subject)"
 ```
@@ -110,7 +110,7 @@ No proprietary components; no dual licensing.
 ### 4. 验收
 
 ```powershell
-Get-AuthenticodeSignature .\CanvasHelper.exe | Format-List Status, SignerCertificate
+Get-AuthenticodeSignature .\Inferry.exe | Format-List Status, SignerCertificate
 # Status 应为 Valid，Subject 里能看到 SignPath Foundation
 ```
 
@@ -136,8 +136,8 @@ Get-AuthenticodeSignature .\CanvasHelper.exe | Format-List Status, SignerCertifi
 **签法**：
 
 ```powershell
-signtool sign /fd SHA256 /tr http://time.certum.pl /td SHA256 CanvasHelper.exe
-Get-AuthenticodeSignature .\CanvasHelper.exe
+signtool sign /fd SHA256 /tr http://time.certum.pl /td SHA256 Inferry.exe
+Get-AuthenticodeSignature .\Inferry.exe
 ```
 
 **CI 限制**：SimplySign 云签名要手机动态码确认，**不适合 GitHub Actions 无人值守**。
@@ -148,10 +148,10 @@ Get-AuthenticodeSignature .\CanvasHelper.exe
 ## 三、常见坑
 
 - **签名必须在打 zip 之前**：先签名再压包，否则 zip 里还是旧字节；
-- **只签 `CanvasHelper.exe` 就够**（SmartScreen 看的是用户双击的那个 PE）；
+- **只签 `Inferry.exe` 就够**（SmartScreen 看的是用户双击的那个 PE）；
   `_internal\` 里的第三方二进制不要改，改了反而破坏 Playwright 的完整性；
-- **别把 `README.txt` 放进 `CanvasHelper\`**：会被「一键更新」的安全阀判成「目录里有额外文件」，
-  从此无法自动更新（`README.txt` 应放在 zip 根，与 `CanvasHelper\` 平级）；
+- **别把 `README.txt` 放进 `Inferry\`**：会被「一键更新」的安全阀判成「目录里有额外文件」，
+  从此无法自动更新（`README.txt` 应放在 zip 根，与 `Inferry\` 平级）；
 - **`--selftest` 要在签名之后跑**：既验证签名没破坏 exe，也验证打包没漏模块；
 - 签名不改变我们的更新流程：`updater.download()` 校验的是 GitHub 提供的 sha256 digest。
 

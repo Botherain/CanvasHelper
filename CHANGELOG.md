@@ -5,6 +5,46 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] - 2026-10-27
+
+**CanvasHelper 改名为 Inferry。** 功能与 1.3.4 基本一致，这一版做的是「改名 + 把老用户
+无损搬过来」：包名、可写数据目录、计划任务、桌面快捷方式、更新地址与命令行名字全部换新，
+其余行为不变。
+
+### 升级须知（必读）
+
+- **先升到 1.3.4，再升 2.0.0。** 1.3.3 修好的「跨改名一键更新」是平滑升级的前提：
+  更新包里的主程序按目录识别、替换脚本按新文件名重启。1.3.2 及更早的更新器只认旧
+  exe 名，请先升到 1.3.4（或手动下载 zip 覆盖一次）。
+- **数据目录搬家**：`%LOCALAPPDATA%\CanvasHelper` → `%LOCALAPPDATA%\Inferry`。首次启动
+  会整目录搬过来（登录态、课程配色、同步记录、排队待办都在）；两个目录同时存在时以
+  新目录为准，旧目录原样保留、**绝不覆盖**。搬不动（旧版本还开着、文件被占用）时本次
+  继续用旧目录并写日志，下次启动自动重试——宁可名字没换成，也不让配置看起来丢了。
+- **计划任务**：旧的 `CanvasHelper-DailySync` / `CanvasHelper-WeeklyReport` 指向的旧 exe
+  已被替换掉，启动时会自动删除，并按新程序路径重建。
+- **桌面快捷方式**：旧的 `CanvasHelper.lnk` 成了死链，启动时会清理（目标 exe 还在时不动）；
+  需要的话到 **设置 → 创建桌面快捷方式** 按新名字重建。
+- **命令行**：`canvas-helper` → `inferry`，`python -m canvas_helper` → `python -m inferry`。
+  本版仍保留 `canvas-helper` / `canvas-helper-gui` 作为兼容别名，下一个大版本移除。
+- **回滚**：想退回 1.3.4，把 `%LOCALAPPDATA%\Inferry` 改名（或复制）回
+  `%LOCALAPPDATA%\CanvasHelper`，再安装 1.3.4——否则 1.3.4 读不到配置，等于重装。
+
+### 改动 · 改名
+
+- 包名 `canvas_helper` → `inferry`；`APP_NAME`、窗口标题、`--version` 全部换新；
+  卸载器、计划任务、快捷方式里的中文/英文文案同步。
+- 发布资产换名：`Inferry-v2.0.0-win64.zip`、`inferry-2.0.0-py3-none-any.whl`；可执行文件与
+  目录为 `Inferry\Inferry.exe`，文件属性里的 ProductName / 原文件名 / 描述都是 `Inferry 2.0.0`。
+- 新图标：`docs/icons/inferry.ico`（16/24/32/48/64/128/256 七档，256 用 PNG 帧），
+  README 预览图 `docs/icons/inferry.png`；`scripts/make_icon.py` 默认源图同步改名。
+- 更新检查指向 `Botherain/Inferry`；旧仓库地址由 GitHub 自动重定向，1.3.x 不会断更。
+- `uninstall.ps1` / `inferry uninstall` 同时认新旧任务名、新旧快捷方式名与新旧数据目录：
+  升级后立刻卸载也清得干净；zip 里的 `README.txt` 写明了迁移与回滚。
+- 文档：README 重写（新增「从 1.3.4 升级到 2.0.0」一节与改名相关 FAQ），
+  `docs/RELEASING.md` 第 7 节改为改名清单与迁移表，`docs/SIGNING.md` 的申请文案换成新仓库。
+- 自检新增第 [19] 节「改名迁移」：数据目录迁移的四种情形（搬 / 两边都有 / 搬不动 /
+  本来就没有）、旧计划任务与旧快捷方式的清理、卸载器认旧名。
+
 ## [1.3.4] - 2026-10-26
 
 本版只加一件东西：**一键卸载**。装得简单，也得卸得干净。

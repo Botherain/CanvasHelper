@@ -6,14 +6,14 @@
 ## 1. 每次发布前的固定动作
 
 ```powershell
-python -m ruff check canvas_helper tests scripts  # 0 错误
+python -m ruff check inferry tests scripts  # 0 错误
 python -m mypy                             # Success: no issues found
-python tests\smoke.py                      # 408 通过, 0 失败
-python -m pytest                           # 41 passed
+python tests\smoke.py                      # 432 通过, 0 失败
+python -m pytest                           # 42 passed
 ```
 
 改了 `pyproject.toml` 的 `version` 就必须同步改
-`canvas_helper/__init__.py` 的 `__version__`——自检第 [9] 节会断言两者相等，
+`inferry/__init__.py` 的 `__version__`——自检第 [9] 节会断言两者相等，
 不一致直接红。
 
 CI（`lint` + `smoke` × Python 3.9/3.10/3.11/3.12/3.13/3.14）全绿后才能发。
@@ -23,7 +23,7 @@ CI（`lint` + `smoke` × Python 3.9/3.10/3.11/3.12/3.13/3.14）全绿后才能�
 - 版本号：语义化版本，改 `pyproject.toml` 与 `__init__.py` 两处。
 - `CHANGELOG.md`：把 `[未发布]` 下的内容挪进新的版本小节，补日期。
 - **`CHANGELOG` 的这一节会原样变成应用内的「更新公告」**：`release.yml` 用
-  `^## \[<version>\]` 抓出正文写成 Release body，客户端（`canvas_helper/updater.py`）
+  `^## \[<version>\]` 抓出正文写成 Release body，客户端（`inferry/updater.py`）
   再把 body 显示在公告窗里。所以：写给人看、别写只有开发者懂的内部编号；
   这一节里的 `###` / `**` 会在公告里被压成纯文本。
 
@@ -33,12 +33,12 @@ CI（`lint` + `smoke` × Python 3.9/3.10/3.11/3.12/3.13/3.14）全绿后才能�
 
 | 文件 | 内容 | 处理 |
 | --- | --- | --- |
-| `canvas_helper/auth.py` | `CANVAS_HOME`、cookie 白名单里的学校域名 | 改为配置项 `canvas_home`（`config.json`），cookie 整上下文保存，SSO 域名不再硬编码 |
-| `canvas_helper/canvas_api.py` | 回退用的 `html_url` 兜底 | 改走 `self.s.url(...)`，由 `canvas_home` 拼接 |
-| `canvas_helper/extras.py` | 公告回退链接里的域名 | 同上（`api.s.url(...)`） |
-| `canvas_helper/deskbox.py` | 待办备注链接正则里的域名 | 按 `canvas_home` 动态编译 |
-| `canvas_helper/gui.py` | 「打开 Canvas」按钮固定链接 | 改读 `canvas_home`；设置页新增「Canvas 站点地址」输入框 |
-| `canvas_helper/classify.py`、注释 | 真实课程号示例 | 全部换成示例号 `CS0001`…`CS0006` |
+| `inferry/auth.py` | `CANVAS_HOME`、cookie 白名单里的学校域名 | 改为配置项 `canvas_home`（`config.json`），cookie 整上下文保存，SSO 域名不再硬编码 |
+| `inferry/canvas_api.py` | 回退用的 `html_url` 兜底 | 改走 `self.s.url(...)`，由 `canvas_home` 拼接 |
+| `inferry/extras.py` | 公告回退链接里的域名 | 同上（`api.s.url(...)`） |
+| `inferry/deskbox.py` | 待办备注链接正则里的域名 | 按 `canvas_home` 动态编译 |
+| `inferry/gui.py` | 「打开 Canvas」按钮固定链接 | 改读 `canvas_home`；设置页新增「Canvas 站点地址」输入框 |
+| `inferry/classify.py`、注释 | 真实课程号示例 | 全部换成示例号 `CS0001`…`CS0006` |
 | `tests/smoke.py`、`tests/test_canvas_api.py` | 真实课程 id、课程号、域名 | 换成 `10001`…`10006` / `CS000x` / `canvas.example.edu` |
 | **`README.md`** | 「安全与隐私」等节的本校域名 | 改为「你配置的 Canvas 站点与 SSO 域名」的通用表述 |
 | **`docs/screenshots/gui-main.png`** | 整张图（课程号 + 通知标题） | **已删除**（无法文本替换），README 移除引用 |
@@ -73,27 +73,27 @@ artifact）。
 
 ```powershell
 python -m pip install pyinstaller
-pyinstaller --noconfirm --clean CanvasHelper.spec
+pyinstaller --noconfirm --clean Inferry.spec
 ```
 
-- **参数全在 `CanvasHelper.spec` 里（该文件已入库）**：`collect_all('playwright')`
+- **参数全在 `Inferry.spec` 里（该文件已入库）**：`collect_all('playwright')`
   带上 driver（node.exe + cli.js，Edge 缺失时「安装 Chromium」要靠它），
   `collect_data_files('tzdata')` 带上 IANA 时区库。这两样漏任何一个，用户那边
   不是起不来就是登录无退路——所以不靠命令行现敲，避免「本地能打、CI 打出来少东西」。
 - `console=False` 不起控制台（tkinter 主程序）。
-- 入口必须是 `scripts\pyinstaller_entry.py`：`canvas_helper\__main__.py` 里的都是
+- 入口必须是 `scripts\pyinstaller_entry.py`：`inferry\__main__.py` 里的都是
   相对导入，被当成独立脚本分析会直接失败。
-- `--icon` 取仓库里的 `docs\icons\canvashelper.ico`（16~128 BMP + 256 PNG 七档）。
+- `--icon` 取仓库里的 `docs\icons\inferry.ico`（16~128 BMP + 256 PNG 七档）。
   换图只需改源图后重跑 `python scripts\make_icon.py`，再按本命令重打包。
-- 产物在 `dist\CanvasHelper\`，压缩成 zip 即可分发。发布流程实际做的是：
-  `dist\CanvasHelper\` + `dist\README.txt`（zip 根，UTF-8 BOM，写明双击哪个文件 /
+- 产物在 `dist\Inferry\`，压缩成 zip 即可分发。发布流程实际做的是：
+  `dist\Inferry\` + `dist\README.txt`（zip 根，UTF-8 BOM，写明双击哪个文件 /
   数据在哪 / SmartScreen 怎么过）+ 卸载器 `uninstall.bat` / `uninstall.ps1`（zip 根，
-  同样不能进 exe 同级目录）一起打进 `CanvasHelper-<tag>-win64.zip`，并在打包后
-  校验 `README.txt`、两个卸载器与 `CanvasHelper/CanvasHelper.exe` 都在包里。
-  `README.txt` 与卸载器必须放在 `CanvasHelper\` **外面**——放进 exe 同级目录会被
+  同样不能进 exe 同级目录）一起打进 `Inferry-<tag>-win64.zip`，并在打包后
+  校验 `README.txt`、两个卸载器与 `Inferry/Inferry.exe` 都在包里。
+  `README.txt` 与卸载器必须放在 `Inferry\` **外面**——放进 exe 同级目录会被
   「一键更新」的安全阀判成「目录里有额外文件」，从此不能自动更新。
-- **exe 带版本资源**：`CanvasHelper.spec` 从 `canvas_helper/__init__.py` 读版本号，生成
-  `build/version_info.txt` 交给 PyInstaller，文件属性里能看到 `CanvasHelper 1.3.2`
+- **exe 带版本资源**：`Inferry.spec` 从 `inferry/__init__.py` 读版本号，生成
+  `build/version_info.txt` 交给 PyInstaller，文件属性里能看到 `Inferry 1.3.2`
   与「MIT License」。所以「改了版本号」这件事在 exe 属性里也看得见。
 - **Release 正文** = CHANGELOG 的对应小节 + 自动追加的「下载哪个文件」表（zip / wheel /
   源码各给谁）。这段表在 `release.yml` 里维护，改措辞只改那一处。
@@ -162,7 +162,7 @@ python -m build
 4. 签名后校验：
 
    ```powershell
-   Get-AuthenticodeSignature dist\CanvasHelper\CanvasHelper.exe
+   Get-AuthenticodeSignature dist\Inferry\Inferry.exe
    # Status 应为 Valid，SignerCertificate.Subject 含组织名
    ```
 
@@ -171,8 +171,8 @@ python -m build
 ```powershell
 # 安装证书后
 signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com ^
-    dist\CanvasHelper\CanvasHelper.exe
-signtool verify /pa dist\CanvasHelper\CanvasHelper.exe
+    dist\Inferry\Inferry.exe
+signtool verify /pa dist\Inferry\Inferry.exe
 ```
 
 私钥务必放在硬件令牌或云 HSM 里，**不要**以 `.pfx` 文件形式放进仓库或 CI 缓存。
@@ -191,10 +191,10 @@ signtool verify /pa dist\CanvasHelper\CanvasHelper.exe
 - [ ] `pyproject.toml` 与 `__version__` 一致
 - [ ] `CHANGELOG.md` 的 `[未发布]` 挪进新小节并写日期
 - [ ] 打标签 `git tag vX.Y.Z && git push origin vX.Y.Z`（自动出包并发布 Release）
-- [ ] 发布后跑一次 `python -m canvas_helper update --brief`：确认应用内能看到这条版本
+- [ ] 发布后跑一次 `python -m inferry update --brief`：确认应用内能看到这条版本
       与公告（它读的就是刚发的 Release；`--download` 可顺带验证下载包与 sha256）
 - [ ] 下载 Release 里的 zip，确认：根目录有 `README.txt` 与 `uninstall.bat`/`uninstall.ps1`、
-      双击 `CanvasHelper\CanvasHelper.exe` 能起来、右键属性里版本号对得上
+      双击 `Inferry\Inferry.exe` 能起来、右键属性里版本号对得上
 - [ ] 在**没装 Python** 的机器上双击 `uninstall.bat` 走一遍卸载（保留课程文件）
 - [ ] 下载 Release 里的 exe 包，在**没装 Python** 的机器上跑一遍 GUI + 同步
 - [ ] `python -m build` 出包并**本地试装**一次
@@ -202,23 +202,29 @@ signtool verify /pa dist\CanvasHelper\CanvasHelper.exe
 - [ ] 签名：按 [`SIGNING.md`](SIGNING.md) 申请（SignPath Foundation 免费 / Certum ≈€49 年），
       通过后在 `release.yml` 的「打 zip」之前插入签名步骤
 
-## 7. 产品改名（2.0.0）要动的地方
+## 7. 产品改名（CanvasHelper → Inferry，2.0.0）已在 v2.0.0 落地
 
-改名不只是换 README 标题。按顺序过一遍，漏一条就会出现「老用户更新后配置丢了 / 每日同步静默失效」：
+改名不只是换 README 标题。下面这张表记录 2.0.0 实际动了哪些地方，以及对应的兜底
+逻辑放在哪——以后再有类似改名，照这张表逐条过一遍即可（漏一条就会出现「老用户
+更新后配置丢了 / 每日同步静默失效」）。
 
-1. **`canvas_helper/` 包名与模块导入**（可选但推荐）：`git mv` + 全局替换 import，
-   `CanvasHelper.spec` 的 `pathex`/入口、`pyproject` 的 `[project.scripts]` 一起改；
-2. **`APP_NAME`、窗口标题、`docs/icons/*`、exe 名**：`CanvasHelper.spec` 里
-   `name='Inferry'`；`release.yml` 的 zip 文件名硬编码了 `CanvasHelper-` 前缀，记得改；
-3. **数据目录**：`paths.DATA_DIR` 换名，并在 `_bootstrap()` 里加一次性迁移
-   （旧目录存在且新目录不存在 → `shutil.move`），否则老用户等于重装（要重新登录、丢配色）；
-4. **计划任务**：`scheduler.TASK_SYNC`/`TASK_REPORT` 换名，并在启动时**删除旧任务名**
-   （`schtasks /Delete /TN CanvasHelper-DailySync`），再按新名重建；
-5. **`updater.REPO`**：GitHub 仓库改名后旧地址会自动重定向，老版本不会断更；新版本记得改；
-6. **快捷方式**：`shortcut.LNK_NAME` 换名；老用户桌面上指向旧 exe 的 `.lnk` 会失效，
-   可在新版本首次启动时提示「重新创建快捷方式」；
-7. **文档与元数据**：README、CHANGELOG、`docs/SIGNING.md` 的申请文案、issue 模板、
-   `pyproject` 的 name/URLs、README 徽章；
-8. **版本号**：改名属于不兼容变更，用 **2.0.0**；`CHANGELOG` 里写清「数据目录已迁移、
-   旧任务已清理」，并在升级说明里提醒用户**先升到 1.3.3**（跨改名的一键更新依赖它修好的
-   重启逻辑），再点 2.0.0 的更新。
+| 位置 | 改动 | 兜底 / 迁移 |
+| --- | --- | --- |
+| `inferry/`（原 `canvas_helper/`） | 包名与全部 import、测试路径 | 无（源码用户重装即可） |
+| `inferry/__init__.py` | `APP_NAME = "Inferry"`、`__version__ = "2.0.0"` | 窗口标题、`--version` 自动跟随 |
+| `inferry/paths.py` | `DATA_DIR = %LOCALAPPDATA%\Inferry` | `_migrate_data_dir()`：旧目录在、新目录不在 → 整目录 rename；两个都在 → 用新的并告警；搬不动 → 继续用旧目录，下次启动重试 |
+| `inferry/scheduler.py` | 任务名 `Inferry-DailySync` / `-WeeklyReport` | `cleanup_legacy()` 启动时删掉 `CanvasHelper-*`；`state.schedule_cmd` 不一致会触发自愈重建 |
+| `inferry/shortcut.py` | `LNK_NAME = "Inferry"` | `remove_legacy()` 只删「目标 exe 已不存在」的 `CanvasHelper.lnk` |
+| `inferry/uninstall.py` + `uninstall.ps1` | 新名字 | 任务名、快捷方式名**同时认新旧**；数据目录新旧都清 |
+| `inferry/updater.py` | `REPO = "Botherain/Inferry"` | 旧仓库地址由 GitHub 自动重定向；更新包里的 exe 本来就按目录扫描识别（1.3.3 修的），跨改名不会把程序更新丢 |
+| `Inferry.spec` / `docs/icons/inferry.*` | 产物名、exe 名、图标 | exe 版本资源写的是 `Inferry 2.0.0` |
+| `pyproject.toml` / `setup.py` | `name = "inferry"`、`inferry` / `inferry-gui` | 保留一个版本的 `canvas-helper` / `canvas-helper-gui` 别名，老脚本不炸 |
+| `release.yml` / `ci.yml` / issue 模板 | zip 名、`dist/Inferry`、selftest 路径、下载表 | 发布前置条件是**仓库先改名**，否则 `updater.REPO` 指向的新地址 404 |
+| `README.md` / `CHANGELOG.md` / `SIGNING.md` | 品牌与升级须知 | CHANGELOG 的 `## [2.0.0]` 里写清回滚方法 |
+
+发布 2.0.0 的额外前置条件：
+
+1. **所有活跃用户已在 1.3.4**（1.3.2 及更早的更新器不认新 exe 名，公告第一行要写）；
+2. **GitHub 仓库先改名**（Settings → Rename），本地 `git remote set-url`；旧地址会自动跳转，
+   但 `api.github.com` 的 releases 接口必须用新名字；
+3. 不要在自己账号下新建同名 `CanvasHelper` 仓库（会打断旧地址的跳转）。
